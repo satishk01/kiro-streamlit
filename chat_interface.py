@@ -602,8 +602,9 @@ Please set your working directory in the sidebar first, then I can help you with
             ],
             "exported_at": datetime.now().isoformat()
         }
-        return json.dumps(chat_data, indent=2)    def
- _extract_task_identifier(self, user_input: str) -> str:
+        return json.dumps(chat_data, indent=2)
+    
+    def _extract_task_identifier(self, user_input: str) -> str:
         """Extract task identifier from user input."""
         import re
         
