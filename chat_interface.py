@@ -677,7 +677,7 @@ Please analyze the request in the context of the current project structure and p
         # Look for task names after keywords
         keywords = ['execute', 'implement', 'start', 'work on', 'run']
         for keyword in keywords:
-            pattern = f'{keyword}\s+(.+?)(?:\s|$)'
+            pattern = rf'{keyword}\s+(.+?)(?:\s|$)'
             match = re.search(pattern, user_input.lower())
             if match:
                 task_name = match.group(1).strip()
@@ -711,8 +711,9 @@ Please analyze the request in the context of the current project structure and p
                 return f"Unknown document type: {doc_type}"
                 
         except Exception as e:
-            return f"Error updating {doc_type}: {str(e)}" 
-   def _build_context_for_ai(self, user_input: str, config) -> str:
+            return f"Error updating {doc_type}: {str(e)}"
+    
+    def _build_context_for_ai(self, user_input: str, config) -> str:
         """Build comprehensive context for AI responses."""
         context_parts = []
         
