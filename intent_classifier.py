@@ -132,25 +132,32 @@ Example response:
             "generate a spec",
             "create specification",
             "generate specification",
+            "detailed specification",
             "formal spec",
             "spec document",
+            "spec for",
+            "specification of",
+            "specification for",
             "execute task",
             "start task",
             "next task",
-            "task from",
-            "spec for"
+            "task from"
         ]
         
         for keyword in spec_keywords:
             if keyword in message_lower:
                 return IntentResult(chat=0.0, do=0.1, spec=0.9)
         
-        # Strong do indicators
+        # Strong do indicators (including vibe coding patterns)
         do_patterns = [
-            r"^(write|create|generate|build|make|add|remove|delete|update|modify|fix|refactor)\s",
+            r"^(write|create|generate|build|make|add|remove|delete|update|modify|fix|refactor|implement)\s",
             r"^(how|what|why|when|where|who)\s",
             r"^(can|could|should|would|will|is|are|do|does)\s",
-            r"\?$"  # Questions
+            r"\?$",  # Questions
+            r"(create|write|generate|make)\s+(file|code|function|class|script)",
+            r"(modify|edit|update|change)\s+(file|code)",
+            r"(add|implement)\s+.*(function|method|class|feature)",
+            r"(fix|refactor|improve|optimize)\s+.*code"
         ]
         
         for pattern in do_patterns:

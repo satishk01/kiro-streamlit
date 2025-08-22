@@ -9,6 +9,8 @@ from intent_classifier import IntentClassifier, ConversationManager
 from ai_client import AIClient
 from models import SessionStateManager
 from workflow import SpecWorkflow
+from kiro_system_prompt import KIRO_SYSTEM_PROMPT
+from vibe_coding import VibeCoding
 
 
 @dataclass
@@ -66,9 +68,18 @@ class ChatInterface:
                     <p>I can help you with:</p>
                     <ul>
                         <li><strong>Creating specifications</strong> - Say "create a spec for [feature]"</li>
+                        <li><strong>Vibe coding</strong> - "Create a Python script", "Add a function to handle auth"</li>
+                        <li><strong>File operations</strong> - "Modify config.py", "Generate a new component"</li>
+                        <li><strong>Code analysis</strong> - "Review this code", "Suggest improvements"</li>
                         <li><strong>Answering questions</strong> - Ask about code, concepts, or best practices</li>
-                        <li><strong>Making changes</strong> - Request code modifications or file operations</li>
                         <li><strong>Executing tasks</strong> - Work through implementation tasks from specs</li>
+                    </ul>
+                    <p><strong>Vibe Coding Examples:</strong></p>
+                    <ul>
+                        <li>"Create a FastAPI endpoint for user authentication"</li>
+                        <li>"Add error handling to the database connection"</li>
+                        <li>"Generate a React component for the dashboard"</li>
+                        <li>"Refactor this function to be more efficient"</li>
                     </ul>
                     <p>Try asking me something or describe what you'd like to build!</p>
                 </div>
@@ -198,8 +209,8 @@ class ChatInterface:
     def _handle_spec_intent(self, user_input: str, intent_result) -> str:
         """Handle specification-related requests."""
         # Check if user wants to create a new spec
-        if any(keyword in user_input.lower() for keyword in ["create spec", "create specification", "generate spec"]):
-            return self._suggest_spec_creation(user_input)
+        if any(keyword in user_input.lower() for keyword in ["create spec", "create specification", "generate spec", "detailed specification"]):
+            return self._create_spec_from_chat(user_input)
         
         # Check if user wants to execute tasks
         if any(keyword in user_input.lower() for keyword in ["execute task", "start task", "next task"]):
@@ -209,8 +220,8 @@ class ChatInterface:
         return """I can help you with specifications! Here are some options:
 
 **Create a new specification:**
-- Use the "Create New Specification" form above
-- Or tell me more about what you want to build
+- Tell me what you want to build and I'll create a spec for you
+- Or use the "Specification Workflow" tab above
 
 **Work with existing specs:**
 - Load a specification from the sidebar
@@ -224,70 +235,90 @@ What would you like to do?"""
     
     def _handle_do_intent(self, user_input: str, intent_result) -> str:
         """Handle action/modification requests."""
-        # This would integrate with actual code modification capabilities
-        # For now, provide helpful guidance
+        # Check if this is a vibe coding request (file operations, code generation)
+        if self._is_vibe_coding_request(user_input):
+            return self._handle_vibe_coding(user_input)
         
-        if "?" in user_input:
-            # Question - provide informational response
-            return self._generate_informational_response(user_input)
-        else:
-            # Action request - guide user
-            return f"""I understand you want me to: {user_input}
-
-Currently, I'm focused on helping with specifications. For code modifications and file operations, you can:
-
-1. **Create a specification first** - This helps plan the implementation
-2. **Use the task execution feature** - Break down work into manageable steps
-3. **Ask specific questions** - I can provide guidance and best practices
-
-Would you like to create a specification for this work, or do you have specific questions I can help with?"""
+        # Use Kiro system prompt for regular responses
+        return self._generate_kiro_response(user_input)
     
     def _handle_chat_intent(self, user_input: str, intent_result) -> str:
         """Handle general chat/informational requests."""
-        return self._generate_informational_response(user_input)
+        return self._generate_kiro_response(user_input)
     
-    def _generate_informational_response(self, user_input: str) -> str:
-        """Generate an informational response using the AI client."""
+    def _generate_kiro_response(self, user_input: str) -> str:
+        """Generate a response using the full Kiro system prompt."""
         try:
-            system_prompt = """You are Kiro, a helpful AI assistant focused on software development and specifications. 
-            Provide clear, concise, and helpful responses. If the question is about creating specifications or planning features, 
-            gently suggest using the specification workflow. Keep responses focused and practical."""
-            
             response = self.ai_client.generate_response(
                 prompt=user_input,
-                system_prompt=system_prompt,
-                max_tokens=500,
+                system_prompt=KIRO_SYSTEM_PROMPT,
+                max_tokens=800,
                 temperature=0.7
             )
             
             return response
             
         except Exception as e:
-            return f"I apologize, but I encountered an error generating a response: {str(e)}\n\nPlease try rephrasing your question or check your connection settings."
+            return f"I ran into an issue generating a response: {str(e)}\n\nTry rephrasing your question or check your connection settings."
     
-    def _suggest_spec_creation(self, user_input: str) -> str:
-        """Suggest creating a specification based on user input."""
-        # Extract potential feature name from input
-        feature_suggestion = self._extract_feature_name(user_input)
-        
-        suggestion = "I'd be happy to help you create a specification! "
-        
-        if feature_suggestion:
-            suggestion += f"It looks like you want to create a spec for: **{feature_suggestion}**\n\n"
-        
-        suggestion += """To get started:
+    def _create_spec_from_chat(self, user_input: str) -> str:
+        """Create a specification directly from chat input."""
+        try:
+            # Extract feature name and description from user input
+            feature_name = self._extract_feature_name(user_input)
+            if not feature_name:
+                feature_name = "code-specification"
+            
+            # Use the user input as the feature description
+            feature_description = user_input
+            
+            # Get current config
+            config = SessionStateManager.get_config()
+            
+            if not config.working_directory or not config.selected_model:
+                return """To create a specification, I need you to configure the application first:
 
-1. **Use the form above** - Fill in the feature name and description
-2. **Or provide more details** - Tell me more about what you want to build
+1. **Set Working Directory** - Choose where to save the specification files
+2. **Select AI Model** - Pick Amazon Nova Pro or Anthropic Claude Sonnet 3.7
+3. **Test Connection** - Verify AWS Bedrock access
 
-The specification workflow will help you create:
-- 📋 **Requirements** - User stories and acceptance criteria
-- 🏗️ **Design** - Technical architecture and components  
-- ✅ **Tasks** - Implementation plan with actionable steps
+Once configured, I can create specifications directly from our chat!"""
+            
+            # Create the specification workflow
+            ai_client = AIClient(config.selected_model, config.aws_region)
+            workflow = SpecWorkflow(feature_name, config.working_directory, ai_client)
+            
+            # Generate initial requirements
+            requirements_content = workflow.create_requirements(feature_description)
+            
+            # Update session state
+            SessionStateManager.set_workflow(workflow)
+            SessionStateManager.set_feature_name(feature_name)
+            SessionStateManager.set_current_content(requirements_content)
+            
+            return f"""Perfect! I've created a specification for **{feature_name}**.
 
-What would you like to build?"""
-        
-        return suggestion
+📋 **Requirements Generated**
+The initial requirements document has been created based on your description. 
+
+**Next Steps:**
+1. Switch to the "Specification Workflow" tab to review the requirements
+2. Approve or request changes to the requirements
+3. Continue through the Design and Tasks phases
+
+The specification will be saved to: `{config.working_directory}/.kiro/specs/{feature_name}/`
+
+Would you like me to help with anything else while you review the requirements?"""
+            
+        except Exception as e:
+            return f"""I encountered an error creating the specification: {str(e)}
+
+Please check:
+- Your AWS connection is working
+- The working directory is accessible
+- The AI model is properly configured
+
+You can also use the "Specification Workflow" tab to create specifications manually."""
     
     def _extract_feature_name(self, user_input: str) -> Optional[str]:
         """Extract potential feature name from user input."""
@@ -349,6 +380,90 @@ Tell me which task number you want to work on, and I can provide guidance!"""
         """Clear the chat history."""
         st.session_state.chat_messages = []
         self.conversation_manager.clear_history()
+    
+    def _is_vibe_coding_request(self, user_input: str) -> bool:
+        """Check if the request is for vibe coding (file operations, code generation)."""
+        vibe_keywords = [
+            "create file", "write file", "generate code", "modify file", "edit file",
+            "delete file", "refactor", "implement", "add function", "create class",
+            "write script", "generate", "build", "make file", "update code",
+            "fix code", "improve code", "optimize", "add to file"
+        ]
+        
+        user_lower = user_input.lower()
+        return any(keyword in user_lower for keyword in vibe_keywords)
+    
+    def _handle_vibe_coding(self, user_input: str) -> str:
+        """Handle vibe coding requests with file operations."""
+        try:
+            config = SessionStateManager.get_config()
+            
+            if not config.working_directory:
+                return """To perform file operations, I need a working directory configured.
+
+Please set your working directory in the sidebar first, then I can help you with:
+- Creating and modifying files
+- Generating code
+- Refactoring existing code
+- File operations and project management"""
+            
+            # Initialize vibe coding
+            vibe_coding = VibeCoding(self.ai_client, config.working_directory)
+            
+            # Get context files if any are selected
+            context_files = []
+            if "file_browser_selected_file" in st.session_state and st.session_state.file_browser_selected_file:
+                selected_file = st.session_state.file_browser_selected_file
+                # Convert absolute path to relative path
+                from pathlib import Path
+                try:
+                    relative_path = Path(selected_file).relative_to(Path(config.working_directory))
+                    context_files.append(str(relative_path))
+                except ValueError:
+                    pass  # File is outside working directory
+            
+            # Process the vibe coding request
+            result = vibe_coding.process_vibe_request(user_input, context_files)
+            
+            if not result.success:
+                return f"I encountered an issue: {result.error_message}\n\nTry rephrasing your request or check your configuration."
+            
+            # Execute file operations if any
+            if result.file_operations:
+                success, errors = vibe_coding.execute_file_operations(result.file_operations)
+                
+                if success:
+                    operation_summary = self._format_operations_summary(result.file_operations)
+                    response = f"{result.response}\n\n**Operations Completed:**\n{operation_summary}"
+                else:
+                    error_summary = "\n".join(errors)
+                    response = f"{result.response}\n\n**Errors occurred:**\n{error_summary}"
+            else:
+                response = result.response
+            
+            # Add shell commands if any
+            if result.shell_commands:
+                commands_text = "\n".join([f"```bash\n{cmd}\n```" for cmd in result.shell_commands])
+                response += f"\n\n**Suggested Commands:**\n{commands_text}"
+            
+            return response
+            
+        except Exception as e:
+            return f"Error processing vibe coding request: {str(e)}\n\nPlease check your configuration and try again."
+    
+    def _format_operations_summary(self, operations) -> str:
+        """Format a summary of completed file operations."""
+        summary = []
+        
+        for op in operations:
+            if op.operation == "create":
+                summary.append(f"✅ Created: `{op.file_path}`")
+            elif op.operation == "modify":
+                summary.append(f"✅ Modified: `{op.file_path}`")
+            elif op.operation == "delete":
+                summary.append(f"✅ Deleted: `{op.file_path}`")
+        
+        return "\n".join(summary)
     
     def export_chat(self) -> str:
         """Export chat history as JSON."""

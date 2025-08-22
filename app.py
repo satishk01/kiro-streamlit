@@ -8,12 +8,13 @@ from file_manager import FileManager
 from workflow import SpecWorkflow, WorkflowPhase
 from models import SessionStateManager, UIStateManager, AppConfig
 from chat_interface import ChatInterface
+from file_browser import FileBrowser
 
 
 def setup_page_config():
     """Configure Streamlit page settings."""
     st.set_page_config(
-        page_title="Kiro Spec Creator",
+        page_title="Kiro - AI Development Assistant",
         page_icon="🤖",
         layout="wide",
         initial_sidebar_state="expanded"
@@ -423,7 +424,7 @@ def render_sidebar():
         st.markdown("""
         <div class="sidebar-section">
             <div class="sidebar-title">🤖 Kiro</div>
-            <div class="sidebar-subtitle">Specification Creator</div>
+            <div class="sidebar-subtitle">AI Development Assistant</div>
         </div>
         """, unsafe_allow_html=True)
         
@@ -519,6 +520,16 @@ def render_sidebar():
                     st.markdown(f'<div class="status-indicator status-error">❌ Error: {str(e)}</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
+        # File Browser
+        if working_directory and config_manager.validate_directory(working_directory):
+            st.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
+            
+            # File browser
+            file_browser = FileBrowser(working_directory)
+            selected_file = file_browser.render_file_browser(height=300)
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+        
         # Existing specs
         if working_directory and config_manager.validate_directory(working_directory):
             file_manager = FileManager(working_directory)
@@ -569,7 +580,7 @@ def render_main_content():
     
     # Add tab navigation for different modes
     if config.working_directory and config.selected_model:
-        tab1, tab2 = st.tabs(["💬 Chat Assistant", "📋 Specification Workflow"])
+        tab1, tab2, tab3 = st.tabs(["💬 Chat Assistant", "📋 Specification Workflow", "📄 File Editor"])
         
         with tab1:
             # Render chat interface
@@ -580,6 +591,10 @@ def render_main_content():
         with tab2:
             # Render specification workflow
             render_spec_workflow_content()
+        
+        with tab3:
+            # Render file editor
+            render_file_editor()
         
         return
     
@@ -649,6 +664,77 @@ def render_spec_workflow_content():
     else:
         # Active workflow - show workflow interface
         render_workflow_interface(current_workflow)
+
+
+def render_file_editor():
+    """Render the file editor interface."""
+    config = SessionStateManager.get_config()
+    
+    st.markdown('<div class="main-header">📄 File Editor</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">View and edit project files</div>', unsafe_allow_html=True)
+    
+    # Check if a file is selected from the sidebar
+    if "file_browser_selected_file" in st.session_state and st.session_state.file_browser_selected_file:
+        selected_file = st.session_state.file_browser_selected_file
+        
+        st.markdown(f"**Current File:** `{selected_file}`")
+        
+        # File preview
+        file_browser = FileBrowser(config.working_directory)
+        
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            # Show file content
+            if file_browser.render_file_content_preview(selected_file, max_lines=100):
+                pass  # Content was rendered
+        
+        with col2:
+            st.markdown("**File Actions**")
+            
+            if st.button("� Anialyze Code", use_container_width=True):
+                # Use vibe coding to analyze the file
+                try:
+                    from vibe_coding import VibeCoding
+                    ai_client = AIClient(config.selected_model, config.aws_region)
+                    vibe_coding = VibeCoding(ai_client, config.working_directory)
+                    
+                    # Get relative path
+                    relative_path = Path(selected_file).relative_to(Path(config.working_directory))
+                    suggestions = vibe_coding.suggest_improvements(str(relative_path))
+                    
+                    st.markdown("**Code Analysis:**")
+                    st.markdown(suggestions)
+                    
+                except Exception as e:
+                    st.error(f"Error analyzing file: {str(e)}")
+            
+            if st.button("💬 Ask About File", use_container_width=True):
+                st.info("Switch to the Chat Assistant tab and ask questions about this file. I can see the selected file context.")
+            
+            if st.button("📋 Copy Path", use_container_width=True):
+                st.success(f"Path copied: {selected_file}")
+            
+            if st.button("🔄 Refresh", use_container_width=True):
+                st.rerun()
+    
+    else:
+        # No file selected
+        st.markdown("""
+        <div class="document-container">
+            <div class="document-header">📁 No File Selected</div>
+            <div class="document-content">
+                <p>Select a file from the File Explorer in the sidebar to view and edit it here.</p>
+                <p><strong>Features:</strong></p>
+                <ul>
+                    <li>Syntax highlighting for code files</li>
+                    <li>File content preview</li>
+                    <li>Quick file operations</li>
+                    <li>Integration with chat assistant</li>
+                </ul>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
 
 def render_new_spec_form():
