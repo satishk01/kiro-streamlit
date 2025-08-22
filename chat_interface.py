@@ -12,6 +12,7 @@ from workflow import SpecWorkflow
 from kiro_system_prompt import KIRO_SYSTEM_PROMPT
 from vibe_coding import VibeCoding
 from task_executor import TaskExecutor
+from kiro_spec_workflow import KiroSpecWorkflow
 
 
 @dataclass
@@ -55,8 +56,23 @@ class ChatInterface:
         
         with col2:
             # Show current spec context if any
-            current_workflow = SessionStateManager.get_workflow()
-            if current_workflow:
+            if hasattr(st.session_state, 'kiro_spec_workflow') and st.session_state.kiro_spec_workflow:
+                # Kiro spec workflow is active
+                workflow = st.session_state.kiro_spec_workflow
+                phase = getattr(st.session_state, 'kiro_spec_phase', 'unknown')
+                feature_name = workflow.get_feature_name()
+                
+                phase_display = {
+                    'requirements-review': 'Requirements Review',
+                    'design-review': 'Design Review', 
+                    'tasks-review': 'Tasks Review',
+                    'complete': 'Complete'
+                }.get(phase, phase)
+                
+                st.markdown(f'<div class="status-indicator status-warning">🔄 Spec: {feature_name} ({phase_display})</div>', unsafe_allow_html=True)
+            
+            elif hasattr(current_workflow, 'feature_name') and current_workflow:
+                # Legacy workflow is active
                 config = SessionStateManager.get_config()
                 if config.working_directory:
                     try:
@@ -306,9 +322,14 @@ What would you like to do?"""
         
         user_lower = user_input.lower()
         
+        # Check if this is part of an ongoing Kiro spec workflow
+        workflow_response = self._check_spec_workflow_state(user_input)
+        if workflow_response:
+            return workflow_response
+        
         # 1. SPEC CREATION - Create new specifications
         if any(keyword in user_lower for keyword in ["create spec", "create specification", "generate spec", "spec for"]):
-            return self._create_spec_from_chat(user_input)
+            return self._handle_kiro_spec_creation(user_input)
         
         # 2. JIRA TICKETS - Generate Jira tickets from current spec
         if any(keyword in user_lower for keyword in ["create jira", "jira ticket", "jira task", "generate jira"]):
@@ -795,4 +816,115 @@ Please analyze the request in the context of the current project structure and p
         context_parts.append("- Jira ticket generation")
         context_parts.append("- Project structure analysis")
         
-        return "\n".join(context_parts)
+        return "\n".join(context_parts) 
+   def _handle_kiro_spec_creation(self, user_input: str) -> str:
+        """Handle Kiro-style specification creation with proper workflow."""
+        config = SessionStateManager.get_config()
+        
+        if not config.working_directory:
+            return "Please set your working directory in the sidebar first so I can create specifications."
+        
+        # Check if we're in the middle of a spec workflow
+        if hasattr(st.session_state, 'kiro_spec_workflow') and st.session_state.kiro_spec_workflow:
+            workflow = st.session_state.kiro_spec_workflow
+            
+            # Handle feedback based on current phase
+            if hasattr(st.session_state, 'kiro_spec_phase'):
+                phase = st.session_state.kiro_spec_phase
+                
+                if phase == "requirements-review":
+                    response, next_action = workflow.handle_requirements_feedback(user_input)
+                    st.session_state.kiro_spec_phase = next_action
+                    
+                    if next_action == "design-review":
+                        response += "\n\nDo the design look good? If so, we can move on to the implementation plan."
+                    
+                    return response
+                
+                elif phase == "design-review":
+                    response, next_action = workflow.handle_design_feedback(user_input)
+                    st.session_state.kiro_spec_phase = next_action
+                    
+                    if next_action == "tasks-review":
+                        response += "\n\nDo the tasks look good?"
+                    
+                    return response
+                
+                elif phase == "tasks-review":
+                    response, next_action = workflow.handle_tasks_feedback(user_input)
+                    st.session_state.kiro_spec_phase = next_action
+                    
+                    if next_action == "complete":
+                        # Clear workflow state
+                        del st.session_state.kiro_spec_workflow
+                        del st.session_state.kiro_spec_phase
+                    
+                    return response
+        
+        # Start new spec workflow
+        kiro_workflow = KiroSpecWorkflow(self.ai_client, config.working_directory)
+        response, next_action = kiro_workflow.create_spec_from_idea(user_input)
+        
+        # Store workflow state
+        st.session_state.kiro_spec_workflow = kiro_workflow
+        st.session_state.kiro_spec_phase = next_action
+        
+        if next_action == "requirements-review":
+            response += "\n\nDo the requirements look good? If so, we can move on to the design."
+        
+        return response
+    
+    def _check_spec_workflow_state(self, user_input: str) -> Optional[str]:
+        """Check if user input is part of an ongoing spec workflow."""
+        if not hasattr(st.session_state, 'kiro_spec_workflow') or not st.session_state.kiro_spec_workflow:
+            return None
+        
+        if not hasattr(st.session_state, 'kiro_spec_phase'):
+            return None
+        
+        phase = st.session_state.kiro_spec_phase
+        workflow = st.session_state.kiro_spec_workflow
+        
+        # Check if this looks like feedback for the current phase
+        feedback_indicators = [
+            "yes", "no", "approved", "looks good", "change", "update", 
+            "modify", "add", "remove", "better", "different"
+        ]
+        
+        if any(indicator in user_input.lower() for indicator in feedback_indicators):
+            if phase == "requirements-review":
+                response, next_action = workflow.handle_requirements_feedback(user_input)
+                st.session_state.kiro_spec_phase = next_action
+                
+                if next_action == "design-review":
+                    response += "\n\nDoes the design look good? If so, we can move on to the implementation plan."
+                elif next_action == "requirements-review":
+                    response += "\n\nDo the requirements look good? If so, we can move on to the design."
+                
+                return response
+            
+            elif phase == "design-review":
+                response, next_action = workflow.handle_design_feedback(user_input)
+                st.session_state.kiro_spec_phase = next_action
+                
+                if next_action == "tasks-review":
+                    response += "\n\nDo the tasks look good?"
+                elif next_action == "design-review":
+                    response += "\n\nDoes the design look good? If so, we can move on to the implementation plan."
+                
+                return response
+            
+            elif phase == "tasks-review":
+                response, next_action = workflow.handle_tasks_feedback(user_input)
+                st.session_state.kiro_spec_phase = next_action
+                
+                if next_action == "complete":
+                    # Clear workflow state
+                    del st.session_state.kiro_spec_workflow
+                    del st.session_state.kiro_spec_phase
+                elif next_action == "tasks-review":
+                    response += "\n\nDo the tasks look good?"
+                
+                return response
+        
+        return None
