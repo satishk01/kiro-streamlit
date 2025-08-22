@@ -325,13 +325,16 @@ What would you like to do?"""
         
         user_lower = user_input.lower()
         
-        # Check if this is part of an ongoing Kiro spec workflow
+        # Check if this is part of an ongoing Kiro spec workflow FIRST
         workflow_response = self._check_spec_workflow_state(user_input)
         if workflow_response:
             return workflow_response
         
-        # 1. SPEC CREATION - Create new specifications
-        if any(keyword in user_lower for keyword in ["create spec", "create specification", "generate spec", "spec for"]):
+        # 1. SPEC CREATION - Create new specifications (Kiro-style detection)
+        # This should be the FIRST thing we check for new requests
+        is_spec_request = self._detect_spec_creation_intent(user_input, intent_result, current_workflow)
+        
+        if is_spec_request:
             return self._handle_kiro_spec_creation(user_input)
         
         # 2. JIRA TICKETS - Generate Jira tickets from current spec
@@ -932,3 +935,77 @@ Please analyze the request in the context of the current project structure and p
                 return response
         
         return None
+    
+    def _detect_spec_creation_intent(self, user_input: str, intent_result, current_workflow) -> bool:
+        """Detect if user input indicates they want to create a specification."""
+        user_lower = user_input.lower()
+        
+        # 1. Explicit spec creation requests
+        explicit_patterns = [
+            "create spec", "create specification", "generate spec", "spec for",
+            "new spec", "make spec", "build spec"
+        ]
+        
+        if any(pattern in user_lower for pattern in explicit_patterns):
+            return True
+        
+        # 2. Check intent classifier result
+        if hasattr(intent_result, 'primary_intent') and intent_result.primary_intent == 'spec':
+            return True
+        
+        # 3. Natural language patterns that indicate wanting to build something
+        # Only trigger if no active workflow (don't interrupt existing work)
+        if current_workflow:
+            return False
+        
+        build_patterns = [
+            "i want to build", "i need to create", "i want to make", "i need to build",
+            "help me build", "help me create", "help me make", "let's build", "let's create",
+            "i want to develop", "help me develop", "let's develop"
+        ]
+        
+        if any(pattern in user_lower for pattern in build_patterns):
+            return True
+        
+        # 4. Action + object patterns (build a, create a, etc.)
+        action_object_patterns = [
+            "build a", "create a", "make a", "develop a", "implement a",
+            "design a", "plan a"
+        ]
+        
+        if any(pattern in user_lower for pattern in action_object_patterns):
+            return True
+        
+        # 5. System/feature description patterns
+        system_patterns = [
+            "system for", "feature for", "application for", "app for", "tool for",
+            "service for", "api for", "website for", "dashboard for", "interface for"
+        ]
+        
+        if any(pattern in user_lower for pattern in system_patterns):
+            return True
+        
+        # 6. Heuristic: mentions building/creating + project indicators
+        action_words = ["build", "create", "make", "develop", "implement", "design"]
+        project_indicators = [
+            "system", "feature", "app", "application", "tool", "service", "api", 
+            "website", "dashboard", "interface", "authentication", "login", "user", 
+            "management", "platform", "portal", "module", "component", "library"
+        ]
+        
+        has_action = any(word in user_lower for word in action_words)
+        has_project_indicator = any(indicator in user_lower for indicator in project_indicators)
+        
+        if has_action and has_project_indicator:
+            return True
+        
+        # 7. Planning/architecture requests
+        planning_patterns = [
+            "plan for", "design for", "architecture for", "how to build", "how to create",
+            "how to implement", "how to develop", "steps to build", "steps to create"
+        ]
+        
+        if any(pattern in user_lower for pattern in planning_patterns):
+            return True
+        
+        return False
