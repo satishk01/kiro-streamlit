@@ -43,9 +43,11 @@ class AIClient:
         
         return {
             "messages": messages,
-            "max_tokens": 4000,
-            "temperature": 0.7,
-            "top_p": 0.9
+            "inferenceConfig": {
+                "maxTokens": 4000,
+                "temperature": 0.7,
+                "topP": 0.9
+            }
         }
     
     def _prepare_claude_request(self, user_input: str, context: str = "") -> Dict[str, Any]:
@@ -71,16 +73,36 @@ class AIClient:
     def _extract_response_content(self, response: Dict[str, Any]) -> str:
         """Extract content from Bedrock response based on model type."""
         try:
-            if "amazon.nova" in self.model_id:
-                # Nova response format
-                return response.get("output", {}).get("message", {}).get("content", [{}])[0].get("text", "")
-            elif "anthropic.claude" in self.model_id:
+            if "nova" in self.model_id.lower():
+                # Nova response format - try different possible structures
+                if "output" in response:
+                    output = response["output"]
+                    if "message" in output:
+                        message = output["message"]
+                        if "content" in message and isinstance(message["content"], list):
+                            return message["content"][0].get("text", "")
+                        elif "content" in message:
+                            return message["content"]
+                    elif "text" in output:
+                        return output["text"]
+                # Alternative Nova format
+                elif "message" in response:
+                    message = response["message"]
+                    if "content" in message and isinstance(message["content"], list):
+                        return message["content"][0].get("text", "")
+                # Direct text response
+                elif "text" in response:
+                    return response["text"]
+                
+                return f"Unknown Nova response format: {json.dumps(response, indent=2)}"
+                
+            elif "claude" in self.model_id.lower():
                 # Claude response format
                 return response.get("content", [{}])[0].get("text", "")
             else:
                 return "Unsupported model response format"
-        except (KeyError, IndexError, TypeError):
-            return "Error parsing response"
+        except (KeyError, IndexError, TypeError) as e:
+            return f"Error parsing response: {str(e)} - Response: {json.dumps(response, indent=2)}"
     
     def generate_content(self, user_input: str, context: str = "") -> str:
         """Generate content using the selected Bedrock model."""
@@ -145,65 +167,37 @@ class AIClient:
         try:
             print(f"Testing model: {self.model_id}")
             
-            # Try different request formats for Nova models
+            # Use correct Nova format with inferenceConfig
             if "nova" in self.model_id.lower():
-                # Try the standard Nova format first
-                request_formats = [
-                    {
-                        "messages": [
-                            {
-                                "role": "user",
-                                "content": [{"text": "Hello"}]
-                            }
-                        ],
-                        "max_tokens": 10,
-                        "temperature": 0.1
-                    },
-                    # Alternative format without content array
-                    {
-                        "messages": [
-                            {
-                                "role": "user", 
-                                "content": "Hello"
-                            }
-                        ],
-                        "max_tokens": 10,
-                        "temperature": 0.1
-                    },
-                    # Another alternative with inferenceConfig
-                    {
-                        "messages": [
-                            {
-                                "role": "user",
-                                "content": [{"text": "Hello"}]
-                            }
-                        ],
-                        "inferenceConfig": {
-                            "maxTokens": 10,
-                            "temperature": 0.1
+                request_body = {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [{"text": "Hello"}]
                         }
+                    ],
+                    "inferenceConfig": {
+                        "maxTokens": 10,
+                        "temperature": 0.1
                     }
-                ]
+                }
                 
-                for i, request_body in enumerate(request_formats):
-                    try:
-                        print(f"Trying Nova format {i+1}: {json.dumps(request_body, indent=2)}")
-                        response = self.bedrock_client.invoke_model(
-                            modelId=self.model_id,
-                            body=json.dumps(request_body),
-                            contentType="application/json",
-                            accept="application/json"
-                        )
-                        
-                        response_body = json.loads(response['body'].read())
-                        print(f"? Nova format {i+1} worked! Response: {json.dumps(response_body, indent=2)}")
-                        return True, f"Model connection successful (format {i+1})"
-                        
-                    except ClientError as format_error:
-                        print(f"? Nova format {i+1} failed: {format_error.response['Error']['Code']} - {format_error.response['Error']['Message']}")
-                        continue
-                
-                return False, f"All Nova request formats failed for {self.model_id}"
+                try:
+                    print(f"Trying Nova format: {json.dumps(request_body, indent=2)}")
+                    response = self.bedrock_client.invoke_model(
+                        modelId=self.model_id,
+                        body=json.dumps(request_body),
+                        contentType="application/json",
+                        accept="application/json"
+                    )
+                    
+                    response_body = json.loads(response['body'].read())
+                    print(f"? Nova format worked! Response: {json.dumps(response_body, indent=2)}")
+                    return True, "Model connection successful"
+                    
+                except ClientError as format_error:
+                    print(f"? Nova format failed: {format_error.response['Error']['Code']} - {format_error.response['Error']['Message']}")
+                    return False, f"Nova request failed: {format_error.response['Error']['Message']}"
                 
             elif "claude" in self.model_id.lower():
                 request_body = {

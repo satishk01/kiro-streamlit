@@ -160,71 +160,114 @@ class UIStateManager:
     
     @staticmethod
     def show_phase_indicator(current_phase: WorkflowPhase):
-        """Display current workflow phase indicator."""
+        """Display current workflow phase indicator with enhanced styling."""
         phases = [
-            ("Requirements", WorkflowPhase.REQUIREMENTS),
-            ("Design", WorkflowPhase.DESIGN),
-            ("Tasks", WorkflowPhase.TASKS),
-            ("Complete", WorkflowPhase.COMPLETE)
+            ("Requirements", WorkflowPhase.REQUIREMENTS, "1"),
+            ("Design", WorkflowPhase.DESIGN, "2"),
+            ("Tasks", WorkflowPhase.TASKS, "3"),
+            ("Complete", WorkflowPhase.COMPLETE, "✓")
         ]
         
-        cols = st.columns(len(phases))
+        # Create the phase progress container
+        phase_html = '<div class="phase-progress">'
         
-        for i, (name, phase) in enumerate(phases):
-            with cols[i]:
-                if phase == current_phase:
-                    st.markdown(f"**🔄 {name}**")
-                elif phase.value in ["requirements", "design", "tasks"] and current_phase.value in ["design", "tasks", "complete"]:
-                    # Show completed phases
-                    if (phase == WorkflowPhase.REQUIREMENTS and current_phase != WorkflowPhase.REQUIREMENTS) or \
-                       (phase == WorkflowPhase.DESIGN and current_phase in [WorkflowPhase.TASKS, WorkflowPhase.COMPLETE]) or \
-                       (phase == WorkflowPhase.TASKS and current_phase == WorkflowPhase.COMPLETE):
-                        st.markdown(f"✅ {name}")
-                    else:
-                        st.markdown(f"⏳ {name}")
-                else:
-                    st.markdown(f"⏳ {name}")
+        for i, (name, phase, icon) in enumerate(phases):
+            # Determine phase status
+            if phase == current_phase:
+                status_class = "active"
+            elif phase.value == "requirements" and current_phase.value in ["design", "tasks", "complete"]:
+                status_class = "complete"
+            elif phase.value == "design" and current_phase.value in ["tasks", "complete"]:
+                status_class = "complete"
+            elif phase.value == "tasks" and current_phase.value == "complete":
+                status_class = "complete"
+            else:
+                status_class = "pending"
+            
+            phase_html += f'''
+            <div class="phase-step {status_class}">
+                <div class="phase-icon {status_class}">{icon}</div>
+                <div class="phase-label">{name}</div>
+            </div>
+            '''
+        
+        phase_html += '</div>'
+        
+        st.markdown(phase_html, unsafe_allow_html=True)
     
     @staticmethod
     def show_document_preview(content: str, title: str):
-        """Display document content with proper formatting."""
+        """Display document content with enhanced styling."""
         if content:
-            st.subheader(title)
+            # Determine icon based on title
+            icon = "📋" if "Requirements" in title else "🏗️" if "Design" in title else "✅"
+            
+            st.markdown(f'''
+            <div class="document-container">
+                <div class="document-header">
+                    {icon} {title}
+                </div>
+                <div class="document-content">
+            ''', unsafe_allow_html=True)
+            
             st.markdown(content)
+            
+            st.markdown('</div></div>', unsafe_allow_html=True)
         else:
-            st.info(f"No {title.lower()} content available yet.")
+            st.markdown(f'''
+            <div class="status-indicator status-info">
+                ℹ️ No {title.lower()} content available yet
+            </div>
+            ''', unsafe_allow_html=True)
     
     @staticmethod
     def show_approval_buttons(document_type: str) -> Optional[str]:
-        """Show approval buttons and return user action."""
+        """Show approval buttons with enhanced styling."""
+        st.markdown('<div class="action-row">', unsafe_allow_html=True)
+        
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button(f"✅ Approve {document_type.title()}", key=f"approve_{document_type}"):
+            if st.button(f"✅ Approve {document_type.title()}", key=f"approve_{document_type}", use_container_width=True, type="primary"):
                 return "approve"
         
         with col2:
-            if st.button(f"✏️ Request Changes", key=f"changes_{document_type}"):
+            if st.button(f"✏️ Request Changes", key=f"changes_{document_type}", use_container_width=True):
                 return "changes"
         
+        st.markdown('</div>', unsafe_allow_html=True)
         return None
     
     @staticmethod
     def show_feedback_form(document_type: str) -> Optional[str]:
-        """Show feedback form and return feedback text."""
-        st.subheader(f"Provide Feedback for {document_type.title()}")
+        """Show feedback form with enhanced styling."""
+        st.markdown(f'<div class="main-header" style="font-size: 1.5rem;">💬 Provide Feedback for {document_type.title()}</div>', unsafe_allow_html=True)
+        
+        st.markdown('<div class="form-container">', unsafe_allow_html=True)
         
         feedback = st.text_area(
             "What changes would you like to see?",
             key=f"feedback_{document_type}",
-            height=100,
-            placeholder="Please describe the changes you'd like to see..."
+            height=120,
+            placeholder="Please describe the specific changes you'd like to see...\n\nExample:\n- Add more detail about error handling\n- Include additional user scenarios\n- Clarify the technical requirements",
+            help="Be specific about what you'd like changed, added, or removed"
         )
         
-        if st.button("Submit Feedback", key=f"submit_feedback_{document_type}"):
-            if feedback.strip():
-                return feedback.strip()
-            else:
-                st.error("Please provide feedback before submitting.")
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        col1, col2 = st.columns([3, 1])
+        
+        with col2:
+            if st.button("📤 Submit Feedback", key=f"submit_feedback_{document_type}", use_container_width=True, type="primary"):
+                if feedback.strip():
+                    return feedback.strip()
+                else:
+                    st.error("Please provide feedback before submitting.")
+        
+        with col1:
+            if st.button("❌ Cancel", key=f"cancel_feedback_{document_type}", use_container_width=True):
+                # Clear the feedback form by setting a session state flag
+                st.session_state[f"show_{document_type}_feedback"] = False
+                st.rerun()
         
         return None

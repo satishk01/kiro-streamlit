@@ -72,7 +72,13 @@ def list_all_bedrock_models(region='us-east-1'):
         for model in nova_models:
             if 'pro' in model['id'].lower():
                 config['Amazon Nova Pro'] = model['id']
+                print(f"✅ Found Nova Pro: {model['id']}")
                 break
+        
+        if not any('Amazon Nova Pro' in k for k in config.keys()):
+            print("❌ No Nova Pro model found. Available Nova models:")
+            for model in nova_models:
+                print(f"  - {model['id']}")
         
         # Find best Claude model
         for model in claude_models:
