@@ -79,14 +79,27 @@ def render_sidebar():
     
     # Test AWS connectivity
     if st.sidebar.button("Test AWS Connection"):
-        try:
-            ai_client = AIClient(selected_model, aws_region)
-            if ai_client.test_connection():
-                st.sidebar.success("✅ AWS Bedrock connection successful")
-            else:
-                st.sidebar.error("❌ AWS Bedrock connection failed")
-        except Exception as e:
-            st.sidebar.error(f"❌ Connection error: {str(e)}")
+        with st.sidebar:
+            with st.spinner("Testing connection..."):
+                try:
+                    # First test basic AWS connectivity
+                    config_manager = ConfigManager()
+                    basic_success, basic_message = config_manager.test_aws_connectivity()
+                    
+                    if basic_success:
+                        # Then test specific model
+                        ai_client = AIClient(selected_model, aws_region)
+                        model_success, model_message = ai_client.test_connection()
+                        
+                        if model_success:
+                            st.success(f"✅ {model_message}")
+                        else:
+                            st.error(f"❌ Model test failed: {model_message}")
+                    else:
+                        st.error(f"❌ AWS connection failed: {basic_message}")
+                        
+                except Exception as e:
+                    st.error(f"❌ Unexpected error: {str(e)}")
     
     st.sidebar.markdown("---")
     

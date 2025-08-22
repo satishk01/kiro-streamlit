@@ -2,7 +2,7 @@
 import os
 import boto3
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 from dataclasses import dataclass
 
 # AWS Configuration
@@ -58,15 +58,29 @@ class ConfigManager:
         except Exception:
             return False
     
-    def test_aws_connectivity(self) -> bool:
+    def test_aws_connectivity(self) -> Tuple[bool, str]:
         """Test AWS Bedrock service connectivity."""
         try:
-            client = boto3.client('bedrock', region_name=self.aws_region)
-            # Simple operation to test connectivity
-            client.list_foundation_models()
-            return True
-        except Exception:
-            return False
+            # Test bedrock client for listing models
+            bedrock_client = boto3.client('bedrock', region_name=self.aws_region)
+            bedrock_client.list_foundation_models()
+            
+            # Test bedrock-runtime client for actual inference
+            runtime_client = boto3.client('bedrock-runtime', region_name=self.aws_region)
+            
+            return True, "Connection successful"
+        except Exception as e:
+            error_msg = str(e)
+            if "AccessDenied" in error_msg:
+                return False, "Access denied - check IAM permissions for Bedrock"
+            elif "UnauthorizedOperation" in error_msg:
+                return False, "Unauthorized - check IAM role permissions"
+            elif "NoCredentialsError" in error_msg:
+                return False, "No AWS credentials found - ensure EC2 instance has proper IAM role"
+            elif "EndpointConnectionError" in error_msg:
+                return False, f"Cannot connect to Bedrock in region {self.aws_region}"
+            else:
+                return False, f"Connection failed: {error_msg}"
     
     def get_bedrock_endpoint(self) -> str:
         """Get Bedrock service endpoint URL."""

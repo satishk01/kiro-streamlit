@@ -1,7 +1,7 @@
 """AWS Bedrock AI client integration for Kiro Streamlit application."""
 import json
 import boto3
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from botocore.exceptions import ClientError, BotoCoreError
 from config import ConfigManager
 from kiro_prompt import PromptManager
@@ -140,10 +140,56 @@ class AIClient:
         
         return self.generate_content(feedback_prompt)
     
-    def test_connection(self) -> bool:
+    def test_connection(self) -> Tuple[bool, str]:
         """Test connection to Bedrock service."""
         try:
-            test_response = self.generate_content("Test connection")
-            return len(test_response) > 0 and not test_response.startswith("Error:")
-        except Exception:
-            return False
+            # Simple test request with minimal content
+            if "amazon.nova" in self.model_id:
+                request_body = {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [{"text": "Hello"}]
+                        }
+                    ],
+                    "max_tokens": 10,
+                    "temperature": 0.1
+                }
+            elif "anthropic.claude" in self.model_id:
+                request_body = {
+                    "anthropic_version": "bedrock-2023-05-31",
+                    "max_tokens": 10,
+                    "temperature": 0.1,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": "Hello"
+                        }
+                    ]
+                }
+            else:
+                return False, f"Unsupported model: {self.model_id}"
+            
+            # Make test request to Bedrock
+            response = self.bedrock_client.invoke_model(
+                modelId=self.model_id,
+                body=json.dumps(request_body),
+                contentType="application/json",
+                accept="application/json"
+            )
+            
+            return True, "Model connection successful"
+            
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            if error_code == 'AccessDeniedException':
+                return False, "Access denied to Bedrock service - check IAM permissions"
+            elif error_code == 'ThrottlingException':
+                return False, "Request throttled - try again later"
+            elif error_code == 'ValidationException':
+                return False, f"Model validation failed - check if {self.model_name} is available in {self.aws_region}"
+            else:
+                return False, f"AWS Error: {error_code} - {e.response['Error']['Message']}"
+        
+        except Exception as e:
+            return False, f"Connection error: {str(e)}"
