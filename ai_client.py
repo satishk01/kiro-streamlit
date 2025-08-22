@@ -143,19 +143,69 @@ class AIClient:
     def test_connection(self) -> Tuple[bool, str]:
         """Test connection to Bedrock service."""
         try:
-            # Simple test request with minimal content
-            if "amazon.nova" in self.model_id:
-                request_body = {
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": [{"text": "Hello"}]
+            print(f"Testing model: {self.model_id}")
+            
+            # Try different request formats for Nova models
+            if "nova" in self.model_id.lower():
+                # Try the standard Nova format first
+                request_formats = [
+                    {
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": [{"text": "Hello"}]
+                            }
+                        ],
+                        "max_tokens": 10,
+                        "temperature": 0.1
+                    },
+                    # Alternative format without content array
+                    {
+                        "messages": [
+                            {
+                                "role": "user", 
+                                "content": "Hello"
+                            }
+                        ],
+                        "max_tokens": 10,
+                        "temperature": 0.1
+                    },
+                    # Another alternative with inferenceConfig
+                    {
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": [{"text": "Hello"}]
+                            }
+                        ],
+                        "inferenceConfig": {
+                            "maxTokens": 10,
+                            "temperature": 0.1
                         }
-                    ],
-                    "max_tokens": 10,
-                    "temperature": 0.1
-                }
-            elif "anthropic.claude" in self.model_id:
+                    }
+                ]
+                
+                for i, request_body in enumerate(request_formats):
+                    try:
+                        print(f"Trying Nova format {i+1}: {json.dumps(request_body, indent=2)}")
+                        response = self.bedrock_client.invoke_model(
+                            modelId=self.model_id,
+                            body=json.dumps(request_body),
+                            contentType="application/json",
+                            accept="application/json"
+                        )
+                        
+                        response_body = json.loads(response['body'].read())
+                        print(f"? Nova format {i+1} worked! Response: {json.dumps(response_body, indent=2)}")
+                        return True, f"Model connection successful (format {i+1})"
+                        
+                    except ClientError as format_error:
+                        print(f"? Nova format {i+1} failed: {format_error.response['Error']['Code']} - {format_error.response['Error']['Message']}")
+                        continue
+                
+                return False, f"All Nova request formats failed for {self.model_id}"
+                
+            elif "claude" in self.model_id.lower():
                 request_body = {
                     "anthropic_version": "bedrock-2023-05-31",
                     "max_tokens": 10,
@@ -167,29 +217,37 @@ class AIClient:
                         }
                     ]
                 }
+                
+                print(f"Trying Claude format: {json.dumps(request_body, indent=2)}")
+                response = self.bedrock_client.invoke_model(
+                    modelId=self.model_id,
+                    body=json.dumps(request_body),
+                    contentType="application/json",
+                    accept="application/json"
+                )
+                
+                response_body = json.loads(response['body'].read())
+                print(f"? Claude format worked! Response: {json.dumps(response_body, indent=2)}")
+                return True, "Model connection successful"
             else:
-                return False, f"Unsupported model: {self.model_id}"
-            
-            # Make test request to Bedrock
-            response = self.bedrock_client.invoke_model(
-                modelId=self.model_id,
-                body=json.dumps(request_body),
-                contentType="application/json",
-                accept="application/json"
-            )
-            
-            return True, "Model connection successful"
+                return False, f"Unsupported model type: {self.model_id}"
             
         except ClientError as e:
             error_code = e.response['Error']['Code']
+            error_message = e.response['Error']['Message']
+            print(f"? ClientError: {error_code} - {error_message}")
+            
             if error_code == 'AccessDeniedException':
                 return False, "Access denied to Bedrock service - check IAM permissions"
             elif error_code == 'ThrottlingException':
                 return False, "Request throttled - try again later"
             elif error_code == 'ValidationException':
-                return False, f"Model validation failed - check if {self.model_name} is available in {self.aws_region}"
+                return False, f"Model validation failed: {error_message}. Check if {self.model_name} ({self.model_id}) is available and accessible in {self.aws_region}"
+            elif error_code == 'ResourceNotFoundException':
+                return False, f"Model not found: {self.model_id}. Check if the model ID is correct and you have access."
             else:
-                return False, f"AWS Error: {error_code} - {e.response['Error']['Message']}"
+                return False, f"AWS Error: {error_code} - {error_message}"
         
         except Exception as e:
+            print(f"? Unexpected error: {str(e)}")
             return False, f"Connection error: {str(e)}"

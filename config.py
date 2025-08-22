@@ -9,7 +9,10 @@ from dataclasses import dataclass
 DEFAULT_AWS_REGION = "us-east-1"
 BEDROCK_MODELS = {
     "Amazon Nova Pro": "amazon.nova-pro-v1:0",
-    "Anthropic Claude Sonnet 3.7": "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+    "Amazon Nova Pro (24k context)": "amazon.nova-pro-v1:0:24k",
+    "Amazon Nova Pro (300k context)": "amazon.nova-pro-v1:0:300k",
+    "Anthropic Claude Sonnet 3.7": "anthropic.claude-3-7-sonnet-20250219-v1:0",
+    "Anthropic Claude 3.5 Sonnet v2": "anthropic.claude-3-5-sonnet-20241022-v2:0"
 }
 
 @dataclass
@@ -72,13 +75,21 @@ class ConfigManager:
                 model_name = model.get('modelName', model_id)
                 all_models.append(f"{model_name} ({model_id})")
                 
-                # Look for Nova models
+                # Look for Nova models (prefer standard version without context limits)
                 if 'nova' in model_id.lower() and 'pro' in model_id.lower():
-                    available_models['Amazon Nova Pro'] = model_id
+                    # Prefer the standard version without context suffix
+                    if model_id == "amazon.nova-pro-v1:0":
+                        available_models['Amazon Nova Pro'] = model_id
+                    elif 'Amazon Nova Pro' not in available_models:
+                        # Fallback to any Nova Pro variant
+                        available_models['Amazon Nova Pro'] = model_id
                 
-                # Look for Claude models
-                if 'claude' in model_id.lower() and ('3-5' in model_id or '3.5' in model_id):
-                    available_models['Anthropic Claude Sonnet 3.7'] = model_id
+                # Look for Claude models (prefer 3.7, then 3.5)
+                if 'claude' in model_id.lower():
+                    if '3-7' in model_id or '3.7' in model_id:
+                        available_models['Anthropic Claude Sonnet 3.7'] = model_id
+                    elif ('3-5' in model_id or '3.5' in model_id) and 'Anthropic Claude Sonnet 3.7' not in available_models:
+                        available_models['Anthropic Claude Sonnet 3.7'] = model_id
             
             models_list = "\n".join(all_models[:10])  # Show first 10 models
             if len(all_models) > 10:
