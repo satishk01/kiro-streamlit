@@ -71,18 +71,21 @@ class ChatInterface:
                 
                 st.markdown(f'<div class="status-indicator status-warning">🔄 Spec: {feature_name} ({phase_display})</div>', unsafe_allow_html=True)
             
-            elif hasattr(current_workflow, 'feature_name') and current_workflow:
-                # Legacy workflow is active
-                config = SessionStateManager.get_config()
-                if config.working_directory:
-                    try:
-                        task_executor = TaskExecutor(self.ai_client, config.working_directory)
-                        task_count = len(task_executor.parse_tasks_from_spec(current_workflow.feature_name))
-                        st.markdown(f'<div class="status-indicator status-info">📋 Active: {current_workflow.feature_name} ({task_count} tasks)</div>', unsafe_allow_html=True)
-                    except:
+            else:
+                # Check for legacy workflow
+                current_workflow = SessionStateManager.get_workflow()
+                if hasattr(current_workflow, 'feature_name') and current_workflow:
+                    # Legacy workflow is active
+                    config = SessionStateManager.get_config()
+                    if config.working_directory:
+                        try:
+                            task_executor = TaskExecutor(self.ai_client, config.working_directory)
+                            task_count = len(task_executor.parse_tasks_from_spec(current_workflow.feature_name))
+                            st.markdown(f'<div class="status-indicator status-info">📋 Active: {current_workflow.feature_name} ({task_count} tasks)</div>', unsafe_allow_html=True)
+                        except:
+                            st.markdown(f'<div class="status-indicator status-info">📋 Active: {current_workflow.feature_name}</div>', unsafe_allow_html=True)
+                    else:
                         st.markdown(f'<div class="status-indicator status-info">📋 Active: {current_workflow.feature_name}</div>', unsafe_allow_html=True)
-                else:
-                    st.markdown(f'<div class="status-indicator status-info">📋 Active: {current_workflow.feature_name}</div>', unsafe_allow_html=True)
         
         # Debug toggle (collapsed by default)
         with st.expander("🔧 Debug Options", expanded=False):
