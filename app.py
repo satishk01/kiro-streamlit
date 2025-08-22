@@ -7,6 +7,7 @@ from ai_client import AIClient
 from file_manager import FileManager
 from workflow import SpecWorkflow, WorkflowPhase
 from models import SessionStateManager, UIStateManager, AppConfig
+from chat_interface import ChatInterface
 
 
 def setup_page_config():
@@ -348,6 +349,70 @@ def setup_page_config():
         opacity: 0.9;
         line-height: 1.5;
     }
+    
+    /* Chat interface styling */
+    .chat-container {
+        max-height: 600px;
+        overflow-y: auto;
+        padding: 1rem;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        background: #f9fafb;
+    }
+    
+    .chat-message {
+        margin-bottom: 1rem;
+        padding: 1rem;
+        border-radius: 8px;
+        max-width: 80%;
+    }
+    
+    .chat-message.user {
+        background: #dbeafe;
+        margin-left: auto;
+        text-align: right;
+    }
+    
+    .chat-message.assistant {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        margin-right: auto;
+    }
+    
+    .chat-input-container {
+        margin-top: 1rem;
+        padding: 1rem;
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+    }
+    
+    .intent-debug {
+        font-size: 0.75rem;
+        color: #6b7280;
+        margin-top: 0.25rem;
+        font-style: italic;
+    }
+    
+    /* Tab styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 2rem;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        height: 3rem;
+        padding: 0 1.5rem;
+        background: #f3f4f6;
+        border-radius: 8px 8px 0 0;
+        border: 1px solid #e5e7eb;
+        border-bottom: none;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background: #ffffff;
+        border-color: #3b82f6;
+        color: #3b82f6;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -502,6 +567,22 @@ def render_main_content():
     """Render main content area."""
     config = SessionStateManager.get_config()
     
+    # Add tab navigation for different modes
+    if config.working_directory and config.selected_model:
+        tab1, tab2 = st.tabs(["💬 Chat Assistant", "📋 Specification Workflow"])
+        
+        with tab1:
+            # Render chat interface
+            ai_client = AIClient(config.selected_model, config.aws_region)
+            chat_interface = ChatInterface(ai_client)
+            chat_interface.render_chat_interface()
+        
+        with tab2:
+            # Render specification workflow
+            render_spec_workflow_content()
+        
+        return
+    
     # Check if configuration is complete
     if not config.working_directory or not config.selected_model:
         st.markdown("""
@@ -558,6 +639,8 @@ def render_main_content():
         
         return
     
+def render_spec_workflow_content():
+    """Render the specification workflow content."""
     current_workflow = SessionStateManager.get_workflow()
     
     if not current_workflow:
