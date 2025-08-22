@@ -154,27 +154,32 @@ class TaskExecutor:
         # Get spec context
         spec_context = self._get_spec_context(spec_name)
         
-        # Create execution prompt
-        execution_prompt = f"""I need to implement this task from the {spec_name} specification:
+        # Create enhanced execution prompt with full context
+        execution_prompt = f"""TASK EXECUTION REQUEST
 
-**Task**: {task.title}
-**Description**: {task.description}
-**Category**: {task.category}
-**Priority**: {task.priority}
+**Task Details:**
+- Title: {task.title}
+- Description: {task.description}
+- Category: {task.category}
+- Priority: {task.priority}
+- Specification: {spec_name}
 
-**Specification Context**:
+**Specification Context:**
 {spec_context}
 
-**Current Project Structure**:
+**Current Project Structure:**
 {self.vibe_coding.get_project_context()}
 
-Please implement this task by:
-1. Creating or modifying the necessary files
-2. Writing the required code
-3. Following best practices and the existing project structure
-4. Providing clear explanations of what you're doing
+**Instructions:**
+As Kiro, implement this task following these guidelines:
+1. Analyze the task in context of the specification and existing codebase
+2. Create or modify files as needed using proper patterns
+3. Follow coding best practices and project conventions
+4. Provide clear explanations of implementation decisions
+5. Ensure code is production-ready and well-documented
 
-Use the FILE_CREATE, FILE_MODIFY, and SHELL_COMMAND patterns to specify the operations needed."""
+Use FILE_CREATE, FILE_MODIFY, and SHELL_COMMAND patterns for operations.
+Focus on incremental, testable implementation that integrates with existing code."""
         
         # Use vibe coding to implement the task
         result = self.vibe_coding.process_vibe_request(execution_prompt)
@@ -256,58 +261,69 @@ Use the FILE_CREATE, FILE_MODIFY, and SHELL_COMMAND patterns to specify the oper
         # Get spec context for better ticket descriptions
         spec_context = self._get_spec_context(spec_name)
         
-        # Generate proper Jira tickets using AI
-        jira_prompt = f"""Based on the {spec_name} specification and its tasks, create professional Jira tickets in proper format.
+        # Generate proper Jira tickets using AI with enhanced context
+        jira_prompt = f"""JIRA TICKET GENERATION REQUEST
 
-**Specification Context:**
+**Project Context:**
+Specification: {spec_name}
+Total Tasks: {len(tasks)}
+
+**Specification Details:**
 {spec_context[:2000]}...
 
-**Tasks to Convert:**
-"""
+**Implementation Tasks:**"""
         
         for i, task in enumerate(tasks, 1):
-            jira_prompt += f"\n{i}. **{task.title}**\n   Category: {task.category}\n   Priority: {task.priority}\n   Description: {task.description}\n"
-        
-        jira_prompt += """
+            jira_prompt += f"""
 
-Create Jira tickets with this EXACT format for each task:
+{i}. **{task.title}**
+   - Category: {task.category}
+   - Priority: {task.priority}
+   - Status: {task.status}
+   - Description: {task.description[:200]}..."""
+        
+        jira_prompt += f"""
+
+**INSTRUCTIONS:**
+As Kiro, create professional Jira tickets for project management. Each ticket should be:
+
+1. **Self-contained and actionable** - Can be assigned to any developer
+2. **Properly formatted** - Ready for import into Jira
+3. **Context-aware** - References the specification and dependencies
+4. **Realistic** - Appropriate story points and effort estimates
+
+**Required Format for Each Ticket:**
 
 ---
-**TICKET #{number}**
+**TICKET #{i}**
 
-**Summary:** [Clear, actionable title under 100 characters]
+**Summary:** [Concise, actionable title (max 100 chars)]
 
-**Issue Type:** Story/Task/Bug
+**Issue Type:** Story/Task/Bug/Epic
 
 **Priority:** High/Medium/Low
 
 **Description:**
-[Detailed description with context and acceptance criteria]
+[Detailed description with business context and technical requirements]
 
 **Acceptance Criteria:**
-- [ ] Criterion 1
-- [ ] Criterion 2
-- [ ] Criterion 3
+- [ ] Specific, testable criterion 1
+- [ ] Specific, testable criterion 2  
+- [ ] Specific, testable criterion 3
 
-**Story Points:** [1, 2, 3, 5, 8, 13]
+**Story Points:** [1, 2, 3, 5, 8, 13, 21]
 
-**Labels:** [comma-separated tags like: backend, api, authentication]
+**Labels:** [relevant tags: {spec_name}, backend, frontend, api, database, etc.]
 
-**Components:** [system components affected]
+**Components:** [system areas affected]
 
 **Epic Link:** {spec_name}
 
+**Dependencies:** [if any]
+
 ---
 
-Make each ticket:
-1. Self-contained and actionable
-2. Include clear acceptance criteria
-3. Reference the overall specification context
-4. Use proper Jira formatting
-5. Include realistic story point estimates
-6. Add relevant labels and components
-
-Generate professional, ready-to-import Jira tickets."""
+Generate {len(tasks)} professional Jira tickets that development teams can immediately use."""
         
         try:
             response = self.ai_client.generate_response(

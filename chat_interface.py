@@ -75,6 +75,21 @@ class ChatInterface:
                 value=st.session_state.show_intent_debug,
                 help="Display intent classification scores for debugging"
             )
+            
+            st.session_state.show_context_debug = st.checkbox(
+                "Show AI context information",
+                value=getattr(st.session_state, 'show_context_debug', False),
+                help="Display the context information sent to AI"
+            )
+            
+            if st.button("🔍 Show Current Context"):
+                config = SessionStateManager.get_config()
+                if config.working_directory:
+                    context = self._build_context_for_ai("Debug context check", config)
+                    st.markdown("**Current Context:**")
+                    st.code(context, language="markdown")
+                else:
+                    st.info("Set working directory to see context")
         
         # Chat messages container
         self._render_chat_messages()
@@ -159,6 +174,14 @@ class ChatInterface:
                     </small>
                 </div>
                 """, unsafe_allow_html=True)
+            
+            # Show context debug info if enabled
+            if getattr(st.session_state, 'show_context_debug', False) and message.role == "user":
+                config = SessionStateManager.get_config()
+                if config.working_directory:
+                    context = self._build_context_for_ai(message.content, config)
+                    with st.expander("🔍 Context sent to AI", expanded=False):
+                        st.code(context[:500] + "..." if len(context) > 500 else context, language="markdown")
         
         else:
             # Assistant message
@@ -337,23 +360,28 @@ What would you like to do?"""
         
         # 7. CONTEXT-AWARE RESPONSES - Provide helpful guidance based on current state
         if current_workflow:
-            # User has active spec - provide spec-specific help
-            return f"""I'm here to help with your **{current_workflow.feature_name}** specification and any development needs.
+            # User has active spec - provide spec-specific help with context
+            context_info = self._build_context_for_ai(user_input, config)
+            
+            enhanced_prompt = f"""User Request: {user_input}
 
-**What I can do right now:**
-- **"List available tasks"** - See all implementation tasks
-- **"What's the next task?"** - Get my recommendation  
-- **"Execute task [number/name]"** - Implement a specific task
-- **"Create Jira tickets"** - Generate tickets for project management
-- **"Create a [component/file/feature]"** - Direct development work
-- **"Update the [requirements/design/tasks]"** - Modify spec documents
+{context_info}
 
-**Or just tell me what you want to build or work on!**
+The user has an active specification ({current_workflow.feature_name}) and is asking for help. Provide contextual assistance based on their project, current spec, and available tasks. Be specific and actionable."""
 
-Current spec has {len(task_executor.parse_tasks_from_spec(current_workflow.feature_name))} tasks ready for implementation."""
+            try:
+                response = self.ai_client.generate_response(
+                    prompt=enhanced_prompt,
+                    system_prompt=KIRO_SYSTEM_PROMPT,
+                    max_tokens=1000,
+                    temperature=0.7
+                )
+                return response
+            except Exception as e:
+                return f"I'm here to help with your **{current_workflow.feature_name}** specification. Current spec has {len(task_executor.parse_tasks_from_spec(current_workflow.feature_name))} tasks ready for implementation. What would you like to work on?"
         
         else:
-            # No active spec - general Kiro help
+            # No active spec - general Kiro help with full context
             return self._generate_kiro_response(user_input)
     
     def _handle_do_intent(self, user_input: str, intent_result) -> str:
@@ -370,12 +398,23 @@ Current spec has {len(task_executor.parse_tasks_from_spec(current_workflow.featu
         return self._generate_kiro_response(user_input)
     
     def _generate_kiro_response(self, user_input: str) -> str:
-        """Generate a response using the full Kiro system prompt."""
+        """Generate a response using the full Kiro system prompt with proper context."""
         try:
+            # Get project context
+            config = SessionStateManager.get_config()
+            context_info = self._build_context_for_ai(user_input, config)
+            
+            # Enhanced prompt with context
+            enhanced_prompt = f"""User Request: {user_input}
+
+{context_info}
+
+Please respond as Kiro, using the context above to provide accurate, helpful assistance. If the user is asking about code, files, or project structure, use the provided context. If they want to create specifications, modify code, or perform development tasks, provide actionable guidance."""
+
             response = self.ai_client.generate_response(
-                prompt=user_input,
+                prompt=enhanced_prompt,
                 system_prompt=KIRO_SYSTEM_PROMPT,
-                max_tokens=800,
+                max_tokens=1200,
                 temperature=0.7
             )
             
@@ -385,15 +424,12 @@ Current spec has {len(task_executor.parse_tasks_from_spec(current_workflow.featu
             return f"I ran into an issue generating a response: {str(e)}\n\nTry rephrasing your question or check your connection settings."
     
     def _create_spec_from_chat(self, user_input: str) -> str:
-        """Create a specification directly from chat input."""
+        """Create a specification directly from chat input with proper context."""
         try:
             # Extract feature name and description from user input
             feature_name = self._extract_feature_name(user_input)
             if not feature_name:
                 feature_name = "code-specification"
-            
-            # Use the user input as the feature description
-            feature_description = user_input
             
             # Get current config
             config = SessionStateManager.get_config()
@@ -407,41 +443,56 @@ Current spec has {len(task_executor.parse_tasks_from_spec(current_workflow.featu
 
 Once configured, I can create specifications directly from our chat!"""
             
+            # Build context for better spec creation
+            context_info = self._build_context_for_ai(user_input, config)
+            
+            # Enhanced feature description with context
+            enhanced_description = f"""Feature Request: {user_input}
+
+{context_info}
+
+Please create a comprehensive specification for this feature, considering the current project context and following Kiro's specification standards."""
+            
             # Create the specification workflow
             ai_client = AIClient(config.selected_model, config.aws_region)
             workflow = SpecWorkflow(feature_name, config.working_directory, ai_client)
             
-            # Generate initial requirements
-            requirements_content = workflow.create_requirements(feature_description)
+            # Generate initial requirements with enhanced context
+            requirements_content = workflow.create_requirements(enhanced_description)
             
             # Update session state
             SessionStateManager.set_workflow(workflow)
             SessionStateManager.set_feature_name(feature_name)
             SessionStateManager.set_current_content(requirements_content)
             
-            return f"""Perfect! I've created a specification for **{feature_name}**.
+            return f"""✅ **Specification Created: {feature_name}**
 
-📋 **Requirements Generated**
-The initial requirements document has been created based on your description. 
+I've analyzed your request in the context of your current project and created a comprehensive specification.
 
-**Next Steps:**
-1. Switch to the "Specification Workflow" tab to review the requirements
-2. Approve or request changes to the requirements
-3. Continue through the Design and Tasks phases
+**📋 Requirements Generated**
+- User stories with acceptance criteria
+- Technical requirements based on project context
+- Integration considerations with existing codebase
 
-The specification will be saved to: `{config.working_directory}/.kiro/specs/{feature_name}/`
+**📁 Files Created:**
+- `{config.working_directory}/.kiro/specs/{feature_name}/requirements.md`
 
-Would you like me to help with anything else while you review the requirements?"""
+**🚀 Next Steps:**
+- Say "Show me the requirements" to review them
+- Say "Create the design document" to continue
+- Say "List available tasks" once the spec is complete
+
+The specification is now active and I can help you with tasks, Jira tickets, and implementation!"""
             
         except Exception as e:
             return f"""I encountered an error creating the specification: {str(e)}
 
 Please check:
 - Your AWS connection is working
-- The working directory is accessible
+- The working directory is accessible  
 - The AI model is properly configured
 
-You can also use the "Specification Workflow" tab to create specifications manually."""
+Try rephrasing your request or check the debug options for more details."""
     
     def _extract_feature_name(self, user_input: str) -> Optional[str]:
         """Extract potential feature name from user input."""
@@ -517,7 +568,7 @@ Tell me which task number you want to work on, and I can provide guidance!"""
         return any(keyword in user_lower for keyword in vibe_keywords)
     
     def _handle_vibe_coding(self, user_input: str) -> str:
-        """Handle vibe coding requests with file operations."""
+        """Handle vibe coding requests with file operations and proper context."""
         try:
             config = SessionStateManager.get_config()
             
@@ -530,7 +581,17 @@ Please set your working directory in the sidebar first, then I can help you with
 - Refactoring existing code
 - File operations and project management"""
             
-            # Initialize vibe coding
+            # Build comprehensive context for vibe coding
+            context_info = self._build_context_for_ai(user_input, config)
+            
+            # Enhanced vibe coding prompt with context
+            enhanced_request = f"""Development Request: {user_input}
+
+{context_info}
+
+Please analyze the request in the context of the current project structure and provide specific, actionable code solutions. Use the Kiro system prompt guidelines for code generation, file operations, and best practices."""
+            
+            # Initialize vibe coding with enhanced context
             vibe_coding = VibeCoding(self.ai_client, config.working_directory)
             
             # Get context files if any are selected
@@ -545,8 +606,8 @@ Please set your working directory in the sidebar first, then I can help you with
                 except ValueError:
                     pass  # File is outside working directory
             
-            # Process the vibe coding request
-            result = vibe_coding.process_vibe_request(user_input, context_files)
+            # Process the vibe coding request with enhanced context
+            result = vibe_coding.process_vibe_request(enhanced_request, context_files)
             
             if not result.success:
                 return f"I encountered an issue: {result.error_message}\n\nTry rephrasing your request or check your configuration."
@@ -650,4 +711,87 @@ Please set your working directory in the sidebar first, then I can help you with
                 return f"Unknown document type: {doc_type}"
                 
         except Exception as e:
-            return f"Error updating {doc_type}: {str(e)}"
+            return f"Error updating {doc_type}: {str(e)}" 
+   def _build_context_for_ai(self, user_input: str, config) -> str:
+        """Build comprehensive context for AI responses."""
+        context_parts = []
+        
+        # 1. Project Structure Context
+        if config.working_directory:
+            try:
+                from pathlib import Path
+                project_root = Path(config.working_directory)
+                
+                # Get key project files
+                key_files = []
+                for pattern in ["*.py", "*.md", "*.json", "*.txt"]:
+                    key_files.extend(list(project_root.glob(pattern)))
+                
+                if key_files:
+                    context_parts.append("**Project Structure:**")
+                    context_parts.append(f"Working Directory: {config.working_directory}")
+                    context_parts.append("Key Files:")
+                    for file in key_files[:10]:  # Limit to first 10 files
+                        relative_path = file.relative_to(project_root)
+                        context_parts.append(f"- {relative_path}")
+                    
+                    if len(key_files) > 10:
+                        context_parts.append(f"... and {len(key_files) - 10} more files")
+            except Exception:
+                pass
+        
+        # 2. Active Specification Context
+        current_workflow = SessionStateManager.get_workflow()
+        if current_workflow:
+            context_parts.append(f"\n**Active Specification:** {current_workflow.feature_name}")
+            
+            # Get spec files content
+            try:
+                spec_dir = Path(config.working_directory) / ".kiro" / "specs" / current_workflow.feature_name
+                
+                for doc_name in ["requirements.md", "design.md", "tasks.md"]:
+                    doc_path = spec_dir / doc_name
+                    if doc_path.exists():
+                        with open(doc_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                        
+                        # Include first 500 chars of each document
+                        preview = content[:500] + "..." if len(content) > 500 else content
+                        context_parts.append(f"\n**{doc_name}:**")
+                        context_parts.append(preview)
+            except Exception:
+                pass
+        
+        # 3. Selected File Context
+        if "file_browser_selected_file" in st.session_state and st.session_state.file_browser_selected_file:
+            selected_file = st.session_state.file_browser_selected_file
+            try:
+                with open(selected_file, 'r', encoding='utf-8') as f:
+                    file_content = f.read()
+                
+                # Include file content (first 1000 chars)
+                preview = file_content[:1000] + "..." if len(file_content) > 1000 else file_content
+                context_parts.append(f"\n**Selected File:** {selected_file}")
+                context_parts.append(f"```\n{preview}\n```")
+            except Exception:
+                pass
+        
+        # 4. Recent Chat Context
+        if st.session_state.chat_messages:
+            recent_messages = st.session_state.chat_messages[-3:]  # Last 3 messages
+            context_parts.append("\n**Recent Conversation:**")
+            for msg in recent_messages:
+                role = "User" if msg.role == "user" else "Assistant"
+                content_preview = msg.content[:200] + "..." if len(msg.content) > 200 else msg.content
+                context_parts.append(f"{role}: {content_preview}")
+        
+        # 5. Available Capabilities
+        context_parts.append("\n**Available Capabilities:**")
+        context_parts.append("- Specification creation and management")
+        context_parts.append("- Code analysis and review")
+        context_parts.append("- File operations and modifications")
+        context_parts.append("- Task execution from specifications")
+        context_parts.append("- Jira ticket generation")
+        context_parts.append("- Project structure analysis")
+        
+        return "\n".join(context_parts)
