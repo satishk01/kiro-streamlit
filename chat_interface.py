@@ -11,6 +11,7 @@ from models import SessionStateManager
 from workflow import SpecWorkflow
 from kiro_system_prompt import KIRO_SYSTEM_PROMPT
 from vibe_coding import VibeCoding
+from task_executor import TaskExecutor
 
 
 @dataclass
@@ -40,11 +41,34 @@ class ChatInterface:
             st.session_state.show_intent_debug = False
     
     def render_chat_interface(self):
-        """Render the main chat interface."""
-        st.markdown('<div class="main-header">💬 Kiro Assistant</div>', unsafe_allow_html=True)
-        st.markdown('<div class="sub-header">Ask questions, request changes, or create specifications</div>', unsafe_allow_html=True)
+        """Legacy method - redirect to unified interface."""
+        self.render_unified_kiro_interface()
+    
+    def render_unified_kiro_interface(self):
+        """Render the unified Kiro interface - everything in one chat like real Kiro."""
+        # Kiro-style header
+        col1, col2 = st.columns([3, 1])
         
-        # Debug toggle
+        with col1:
+            st.markdown('<div class="main-header">🤖 Kiro</div>', unsafe_allow_html=True)
+            st.markdown('<div class="sub-header">AI Development Assistant</div>', unsafe_allow_html=True)
+        
+        with col2:
+            # Show current spec context if any
+            current_workflow = SessionStateManager.get_workflow()
+            if current_workflow:
+                config = SessionStateManager.get_config()
+                if config.working_directory:
+                    try:
+                        task_executor = TaskExecutor(self.ai_client, config.working_directory)
+                        task_count = len(task_executor.parse_tasks_from_spec(current_workflow.feature_name))
+                        st.markdown(f'<div class="status-indicator status-info">📋 Active: {current_workflow.feature_name} ({task_count} tasks)</div>', unsafe_allow_html=True)
+                    except:
+                        st.markdown(f'<div class="status-indicator status-info">📋 Active: {current_workflow.feature_name}</div>', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<div class="status-indicator status-info">📋 Active: {current_workflow.feature_name}</div>', unsafe_allow_html=True)
+        
+        # Debug toggle (collapsed by default)
         with st.expander("🔧 Debug Options", expanded=False):
             st.session_state.show_intent_debug = st.checkbox(
                 "Show intent classification details",
@@ -63,25 +87,43 @@ class ChatInterface:
         if not st.session_state.chat_messages:
             st.markdown("""
             <div class="document-container">
-                <div class="document-header">👋 Welcome to Kiro Assistant</div>
+                <div class="document-header">👋 Welcome to Kiro</div>
                 <div class="document-content">
-                    <p>I can help you with:</p>
+                    <p>I'm your AI development assistant. I can help you with everything from planning to implementation:</p>
+                    
+                    <h4>📋 Specification & Planning</h4>
                     <ul>
-                        <li><strong>Creating specifications</strong> - Say "create a spec for [feature]"</li>
-                        <li><strong>Vibe coding</strong> - "Create a Python script", "Add a function to handle auth"</li>
-                        <li><strong>File operations</strong> - "Modify config.py", "Generate a new component"</li>
-                        <li><strong>Code analysis</strong> - "Review this code", "Suggest improvements"</li>
-                        <li><strong>Answering questions</strong> - Ask about code, concepts, or best practices</li>
-                        <li><strong>Executing tasks</strong> - Work through implementation tasks from specs</li>
+                        <li>"Create a spec for user authentication system"</li>
+                        <li>"Generate a specification for the payment module"</li>
+                        <li>"What's the next task I should work on?"</li>
+                        <li>"Create Jira tickets from the current spec"</li>
                     </ul>
-                    <p><strong>Vibe Coding Examples:</strong></p>
+                    
+                    <h4>⚡ Development & Implementation</h4>
                     <ul>
-                        <li>"Create a FastAPI endpoint for user authentication"</li>
-                        <li>"Add error handling to the database connection"</li>
+                        <li>"Execute task 1" or "Implement the database setup"</li>
+                        <li>"Create a FastAPI endpoint for user login"</li>
+                        <li>"Add error handling to the auth function"</li>
                         <li>"Generate a React component for the dashboard"</li>
-                        <li>"Refactor this function to be more efficient"</li>
                     </ul>
-                    <p>Try asking me something or describe what you'd like to build!</p>
+                    
+                    <h4>🔍 Code Review & Analysis</h4>
+                    <ul>
+                        <li>"Review this code for security issues"</li>
+                        <li>"Suggest improvements for performance"</li>
+                        <li>"Explain how this authentication system works"</li>
+                        <li>"What are the best practices for this pattern?"</li>
+                    </ul>
+                    
+                    <h4>📁 Project Management</h4>
+                    <ul>
+                        <li>"List available tasks in the current spec"</li>
+                        <li>"Show me the project structure"</li>
+                        <li>"Create documentation for this module"</li>
+                        <li>"Generate tests for the user service"</li>
+                    </ul>
+                    
+                    <p><strong>Just talk to me naturally!</strong> I understand context and can work on whatever you need. Select files in the sidebar to give me more context about your project.</p>
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -155,16 +197,24 @@ class ChatInterface:
             self._process_user_input(user_input.strip())
     
     def _process_user_input(self, user_input: str):
-        """Process user input and generate appropriate response."""
+        """Process user input with unified Kiro-like behavior."""
         try:
-            # Get conversation history for context
-            history = [
-                {"role": msg.role, "content": msg.content}
-                for msg in st.session_state.chat_messages[-5:]  # Last 5 messages
-            ]
+            config = SessionStateManager.get_config()
             
-            # Classify intent
-            intent_result = self.intent_classifier.classify_intent(user_input, history)
+            if not config.working_directory:
+                response = "Please set your working directory in the sidebar first so I can help you with your project."
+            else:
+                # Get conversation history for context
+                history = [
+                    {"role": msg.role, "content": msg.content}
+                    for msg in st.session_state.chat_messages[-5:]  # Last 5 messages
+                ]
+                
+                # Classify intent for debugging but handle everything unified
+                intent_result = self.intent_classifier.classify_intent(user_input, history)
+                
+                # Handle request in unified Kiro style
+                response = self._handle_unified_kiro_request(user_input, intent_result)
             
             # Add user message to chat
             user_message = ChatMessage(
@@ -172,21 +222,13 @@ class ChatInterface:
                 content=user_input,
                 timestamp=datetime.now(),
                 intent_info={
-                    "primary_intent": intent_result.primary_intent,
-                    "chat": intent_result.chat,
-                    "do": intent_result.do,
-                    "spec": intent_result.spec
-                }
+                    "primary_intent": getattr(intent_result, 'primary_intent', 'chat'),
+                    "chat": getattr(intent_result, 'chat', 0.5),
+                    "do": getattr(intent_result, 'do', 0.5),
+                    "spec": getattr(intent_result, 'spec', 0.5)
+                } if 'intent_result' in locals() else {}
             )
             st.session_state.chat_messages.append(user_message)
-            
-            # Generate response based on intent
-            if intent_result.primary_intent == "spec":
-                response = self._handle_spec_intent(user_input, intent_result)
-            elif intent_result.primary_intent == "do":
-                response = self._handle_do_intent(user_input, intent_result)
-            else:
-                response = self._handle_chat_intent(user_input, intent_result)
             
             # Add assistant response to chat
             assistant_message = ChatMessage(
@@ -232,6 +274,87 @@ class ChatInterface:
 - Get guidance on requirements, design, or tasks
 
 What would you like to do?"""
+    
+    def _handle_unified_kiro_request(self, user_input: str, intent_result) -> str:
+        """Handle all requests in unified Kiro style - no mode switching needed."""
+        config = SessionStateManager.get_config()
+        task_executor = TaskExecutor(self.ai_client, config.working_directory)
+        current_workflow = SessionStateManager.get_workflow()
+        
+        user_lower = user_input.lower()
+        
+        # 1. SPEC CREATION - Create new specifications
+        if any(keyword in user_lower for keyword in ["create spec", "create specification", "generate spec", "spec for"]):
+            return self._create_spec_from_chat(user_input)
+        
+        # 2. JIRA TICKETS - Generate Jira tickets from current spec
+        if any(keyword in user_lower for keyword in ["create jira", "jira ticket", "jira task", "generate jira"]):
+            if not current_workflow:
+                return "I need an active specification to create Jira tickets. Load a spec from the sidebar or create one by saying 'Create a spec for [your feature]'."
+            return task_executor.create_jira_tickets(current_workflow.feature_name)
+        
+        # 3. TASK EXECUTION - Execute specific tasks from specs
+        if any(keyword in user_lower for keyword in ["execute task", "implement task", "start task", "run task", "work on task"]):
+            if not current_workflow:
+                return "I need an active specification to execute tasks. Load a spec from the sidebar or create one first."
+            
+            task_id = self._extract_task_identifier(user_input)
+            if task_id:
+                return task_executor.execute_task(task_id, current_workflow.feature_name)
+            else:
+                return task_executor.list_available_tasks(current_workflow.feature_name)
+        
+        # 4. TASK MANAGEMENT - List tasks, get next task, etc.
+        if any(keyword in user_lower for keyword in ["list task", "show task", "available task", "what task"]):
+            if not current_workflow:
+                return "No active specification. Load a spec from the sidebar to see its tasks."
+            return task_executor.list_available_tasks(current_workflow.feature_name)
+        
+        if any(keyword in user_lower for keyword in ["next task", "what next", "what should i", "recommend"]):
+            if not current_workflow:
+                return "No active specification. Load a spec from the sidebar to get task recommendations."
+            return task_executor.get_next_task(current_workflow.feature_name)
+        
+        # 5. VIBE CODING - Direct development requests
+        if self._is_vibe_coding_request(user_input):
+            return self._handle_vibe_coding(user_input)
+        
+        # 6. SPEC UPDATES - Update existing spec documents
+        if any(keyword in user_lower for keyword in ["update requirement", "modify requirement", "change requirement"]):
+            if not current_workflow:
+                return "I need an active specification to update requirements. Load a spec from the sidebar first."
+            return self._handle_spec_update(user_input, "requirements", current_workflow)
+        
+        if any(keyword in user_lower for keyword in ["update design", "modify design", "change design"]):
+            if not current_workflow:
+                return "I need an active specification to update the design. Load a spec from the sidebar first."
+            return self._handle_spec_update(user_input, "design", current_workflow)
+        
+        if any(keyword in user_lower for keyword in ["add task", "more task", "update task"]):
+            if not current_workflow:
+                return "I need an active specification to update tasks. Load a spec from the sidebar first."
+            return self._handle_spec_update(user_input, "tasks", current_workflow)
+        
+        # 7. CONTEXT-AWARE RESPONSES - Provide helpful guidance based on current state
+        if current_workflow:
+            # User has active spec - provide spec-specific help
+            return f"""I'm here to help with your **{current_workflow.feature_name}** specification and any development needs.
+
+**What I can do right now:**
+- **"List available tasks"** - See all implementation tasks
+- **"What's the next task?"** - Get my recommendation  
+- **"Execute task [number/name]"** - Implement a specific task
+- **"Create Jira tickets"** - Generate tickets for project management
+- **"Create a [component/file/feature]"** - Direct development work
+- **"Update the [requirements/design/tasks]"** - Modify spec documents
+
+**Or just tell me what you want to build or work on!**
+
+Current spec has {len(task_executor.parse_tasks_from_spec(current_workflow.feature_name))} tasks ready for implementation."""
+        
+        else:
+            # No active spec - general Kiro help
+            return self._generate_kiro_response(user_input)
     
     def _handle_do_intent(self, user_input: str, intent_result) -> str:
         """Handle action/modification requests."""
@@ -479,4 +602,51 @@ Please set your working directory in the sidebar first, then I can help you with
             ],
             "exported_at": datetime.now().isoformat()
         }
-        return json.dumps(chat_data, indent=2)
+        return json.dumps(chat_data, indent=2)    def
+ _extract_task_identifier(self, user_input: str) -> str:
+        """Extract task identifier from user input."""
+        import re
+        
+        # Look for task numbers
+        number_match = re.search(r'task\s+(\d+)', user_input.lower())
+        if number_match:
+            return f"task-{number_match.group(1)}"
+        
+        # Look for task names after keywords
+        keywords = ['execute', 'implement', 'start', 'work on', 'run']
+        for keyword in keywords:
+            pattern = f'{keyword}\s+(.+?)(?:\s|$)'
+            match = re.search(pattern, user_input.lower())
+            if match:
+                task_name = match.group(1).strip()
+                # Clean up common words
+                task_name = re.sub(r'\b(task|the|a|an)\b', '', task_name).strip()
+                if task_name:
+                    return task_name
+        
+        return ""
+    
+    def _handle_spec_update(self, user_input: str, doc_type: str, workflow: SpecWorkflow) -> str:
+        """Handle updates to specification documents."""
+        try:
+            if doc_type == "requirements":
+                # Extract what user wants to change about requirements
+                change_request = user_input.replace("update requirement", "").replace("modify requirement", "").strip()
+                updated_content = workflow.update_requirements(change_request)
+                return f"✅ **Requirements Updated**\n\nI've updated the requirements based on your request. The changes have been saved to the requirements.md file.\n\n**Summary of changes:** {change_request}"
+            
+            elif doc_type == "design":
+                change_request = user_input.replace("update design", "").replace("modify design", "").strip()
+                updated_content = workflow.update_design(change_request)
+                return f"✅ **Design Updated**\n\nI've updated the design document based on your request. The changes have been saved to the design.md file.\n\n**Summary of changes:** {change_request}"
+            
+            elif doc_type == "tasks":
+                change_request = user_input.replace("add task", "").replace("more task", "").replace("update task", "").strip()
+                updated_content = workflow.update_tasks(change_request)
+                return f"✅ **Tasks Updated**\n\nI've updated the implementation tasks based on your request. The changes have been saved to the tasks.md file.\n\n**Summary of changes:** {change_request}"
+            
+            else:
+                return f"Unknown document type: {doc_type}"
+                
+        except Exception as e:
+            return f"Error updating {doc_type}: {str(e)}"

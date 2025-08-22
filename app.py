@@ -578,24 +578,12 @@ def render_main_content():
     """Render main content area."""
     config = SessionStateManager.get_config()
     
-    # Add tab navigation for different modes
+    # Unified Kiro-like interface - everything in chat
     if config.working_directory and config.selected_model:
-        tab1, tab2, tab3 = st.tabs(["💬 Chat Assistant", "📋 Specification Workflow", "📄 File Editor"])
-        
-        with tab1:
-            # Render chat interface
-            ai_client = AIClient(config.selected_model, config.aws_region)
-            chat_interface = ChatInterface(ai_client)
-            chat_interface.render_chat_interface()
-        
-        with tab2:
-            # Render specification workflow
-            render_spec_workflow_content()
-        
-        with tab3:
-            # Render file editor
-            render_file_editor()
-        
+        # Main chat interface (like real Kiro)
+        ai_client = AIClient(config.selected_model, config.aws_region)
+        chat_interface = ChatInterface(ai_client)
+        chat_interface.render_unified_kiro_interface()
         return
     
     # Check if configuration is complete
