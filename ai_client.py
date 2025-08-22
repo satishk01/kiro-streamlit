@@ -219,8 +219,14 @@ class AIClient:
                     return True, "Model connection successful"
                     
                 except ClientError as format_error:
-                    print(f"❌ Nova format failed: {format_error.response['Error']['Code']} - {format_error.response['Error']['Message']}")
-                    return False, f"Nova request failed: {format_error.response['Error']['Message']}"
+                    error_code = format_error.response['Error']['Code']
+                    error_message = format_error.response['Error']['Message']
+                    print(f"❌ Nova format failed: {error_code} - {error_message}")
+                    
+                    if "on-demand throughput isn't supported" in error_message:
+                        return False, f"Nova model requires inference profile. Current model ID: {self.model_id}. Try using inference profile format like 'us.amazon.nova-pro-v1:0'"
+                    else:
+                        return False, f"Nova request failed: {error_message}"
                 
             elif "claude" in self.model_id.lower():
                 request_body = {

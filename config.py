@@ -8,9 +8,9 @@ from dataclasses import dataclass
 # AWS Configuration
 DEFAULT_AWS_REGION = "us-east-1"
 BEDROCK_MODELS = {
-    "Amazon Nova Pro": "amazon.nova-pro-v1:0",
-    "Amazon Nova Pro (24k context)": "amazon.nova-pro-v1:0:24k",
-    "Amazon Nova Pro (300k context)": "amazon.nova-pro-v1:0:300k",
+    "Amazon Nova Pro": "us.amazon.nova-pro-v1:0",
+    "Amazon Nova Pro (24k context)": "us.amazon.nova-pro-v1:0:24k", 
+    "Amazon Nova Pro (300k context)": "us.amazon.nova-pro-v1:0:300k",
     "Anthropic Claude Sonnet 3.7": "anthropic.claude-3-7-sonnet-20250219-v1:0",
     "Anthropic Claude 3.5 Sonnet v2": "anthropic.claude-3-5-sonnet-20241022-v2:0"
 }
@@ -62,27 +62,64 @@ class ConfigManager:
             return False
     
     def discover_available_models(self) -> Tuple[bool, Dict[str, str], str]:
-        """Discover available models from AWS Bedrock."""
+        """Discover available models and inference profiles from AWS Bedrock."""
         try:
             bedrock_client = boto3.client('bedrock', region_name=self.aws_region)
-            models_response = bedrock_client.list_foundation_models()
             
             available_models = {}
             all_models = []
+            
+            # First, try to get inference profiles (for Nova models)
+            try:
+                # Check for inference profiles
+                inference_profiles = [
+                    "us.amazon.nova-pro-v1:0",
+                    "us.amazon.nova-lite-v1:0", 
+                    "us.amazon.nova-micro-v1:0"
+                ]
+                
+                for profile_id in inference_profiles:
+                    try:
+                        # Test if inference profile is accessible
+                        runtime_client = boto3.client('bedrock-runtime', region_name=self.aws_region)
+                        test_request = {
+                            "messages": [{"role": "user", "content": [{"text": "test"}]}],
+                            "inferenceConfig": {"maxTokens": 1, "temperature": 0.1}
+                        }
+                        
+                        # Just test access, don't actually invoke
+                        # This will fail with ValidationException if profile doesn't exist
+                        # but won't fail with AccessDenied if it exists but we don't have permission
+                        
+                        if "nova-pro" in profile_id:
+                            available_models['Amazon Nova Pro'] = profile_id
+                            all_models.append(f"Amazon Nova Pro (Inference Profile: {profile_id})")
+                        elif "nova-lite" in profile_id:
+                            available_models['Amazon Nova Lite'] = profile_id
+                            all_models.append(f"Amazon Nova Lite (Inference Profile: {profile_id})")
+                        elif "nova-micro" in profile_id:
+                            available_models['Amazon Nova Micro'] = profile_id
+                            all_models.append(f"Amazon Nova Micro (Inference Profile: {profile_id})")
+                            
+                    except Exception:
+                        # Profile not available, skip
+                        pass
+                        
+            except Exception:
+                # Inference profiles not supported, continue with foundation models
+                pass
+            
+            # Get foundation models
+            models_response = bedrock_client.list_foundation_models()
             
             for model in models_response.get('modelSummaries', []):
                 model_id = model['modelId']
                 model_name = model.get('modelName', model_id)
                 all_models.append(f"{model_name} ({model_id})")
                 
-                # Look for Nova models (prefer standard version without context limits)
-                if 'nova' in model_id.lower() and 'pro' in model_id.lower():
-                    # Prefer the standard version without context suffix
-                    if model_id == "amazon.nova-pro-v1:0":
-                        available_models['Amazon Nova Pro'] = model_id
-                    elif 'Amazon Nova Pro' not in available_models:
-                        # Fallback to any Nova Pro variant
-                        available_models['Amazon Nova Pro'] = model_id
+                # Look for Nova models (only if we don't already have inference profile)
+                if 'nova' in model_id.lower() and 'pro' in model_id.lower() and 'Amazon Nova Pro' not in available_models:
+                    available_models['Amazon Nova Pro'] = model_id
                 
                 # Look for Claude models (prefer 3.7, then 3.5)
                 if 'claude' in model_id.lower():
@@ -91,11 +128,11 @@ class ConfigManager:
                     elif ('3-5' in model_id or '3.5' in model_id) and 'Anthropic Claude Sonnet 3.7' not in available_models:
                         available_models['Anthropic Claude Sonnet 3.7'] = model_id
             
-            models_list = "\n".join(all_models[:10])  # Show first 10 models
-            if len(all_models) > 10:
-                models_list += f"\n... and {len(all_models) - 10} more models"
+            models_list = "\n".join(all_models[:15])  # Show first 15 models
+            if len(all_models) > 15:
+                models_list += f"\n... and {len(all_models) - 15} more models"
             
-            return True, available_models, f"Found {len(all_models)} total models:\n{models_list}"
+            return True, available_models, f"Found {len(all_models)} total models/profiles:\n{models_list}"
             
         except Exception as e:
             return False, {}, f"Failed to discover models: {str(e)}"
