@@ -816,8 +816,9 @@ Please analyze the request in the context of the current project structure and p
         context_parts.append("- Jira ticket generation")
         context_parts.append("- Project structure analysis")
         
-        return "\n".join(context_parts) 
-   def _handle_kiro_spec_creation(self, user_input: str) -> str:
+        return "\n".join(context_parts)
+
+    def _handle_kiro_spec_creation(self, user_input: str) -> str:
         """Handle Kiro-style specification creation with proper workflow."""
         config = SessionStateManager.get_config()
         
