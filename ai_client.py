@@ -26,16 +26,23 @@ class AIClient:
             region_name=self.aws_region
         )
     
-    def _prepare_nova_request(self, user_input: str, context: str = "") -> Dict[str, Any]:
+    def _prepare_nova_request(self, user_input: str, context: str = "", system_prompt: str = None, max_tokens: int = 4000, temperature: float = 0.7) -> Dict[str, Any]:
         """Prepare request payload for Amazon Nova Pro."""
-        system_prompt = self.prompt_manager.get_combined_prompt()
+        if system_prompt is None:
+            system_prompt = self.prompt_manager.get_combined_prompt()
+        
+        # For Nova, we include system prompt in the user message
+        full_prompt = f"{system_prompt}\n\n"
+        if context:
+            full_prompt += f"Context: {context}\n\n"
+        full_prompt += f"User Input: {user_input}"
         
         messages = [
             {
                 "role": "user",
                 "content": [
                     {
-                        "text": f"{system_prompt}\n\nContext: {context}\n\nUser Input: {user_input}"
+                        "text": full_prompt
                     }
                 ]
             }
@@ -44,27 +51,33 @@ class AIClient:
         return {
             "messages": messages,
             "inferenceConfig": {
-                "maxTokens": 4000,
-                "temperature": 0.7,
+                "maxTokens": max_tokens,
+                "temperature": temperature,
                 "topP": 0.9
             }
         }
     
-    def _prepare_claude_request(self, user_input: str, context: str = "") -> Dict[str, Any]:
+    def _prepare_claude_request(self, user_input: str, context: str = "", system_prompt: str = None, max_tokens: int = 4000, temperature: float = 0.7) -> Dict[str, Any]:
         """Prepare request payload for Anthropic Claude Sonnet 3.7."""
-        system_prompt = self.prompt_manager.get_combined_prompt()
+        if system_prompt is None:
+            system_prompt = self.prompt_manager.get_combined_prompt()
+        
+        user_content = ""
+        if context:
+            user_content += f"Context: {context}\n\n"
+        user_content += f"User Input: {user_input}"
         
         messages = [
             {
                 "role": "user",
-                "content": f"Context: {context}\n\nUser Input: {user_input}"
+                "content": user_content
             }
         ]
         
         return {
             "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 4000,
-            "temperature": 0.7,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
             "top_p": 0.9,
             "system": system_prompt,
             "messages": messages
@@ -104,14 +117,14 @@ class AIClient:
         except (KeyError, IndexError, TypeError) as e:
             return f"Error parsing response: {str(e)} - Response: {json.dumps(response, indent=2)}"
     
-    def generate_content(self, user_input: str, context: str = "") -> str:
+    def generate_content(self, user_input: str, context: str = "", system_prompt: str = None, max_tokens: int = 4000, temperature: float = 0.7) -> str:
         """Generate content using the selected Bedrock model."""
         try:
             # Prepare request based on model type
             if "amazon.nova" in self.model_id:
-                request_body = self._prepare_nova_request(user_input, context)
+                request_body = self._prepare_nova_request(user_input, context, system_prompt, max_tokens, temperature)
             elif "anthropic.claude" in self.model_id:
-                request_body = self._prepare_claude_request(user_input, context)
+                request_body = self._prepare_claude_request(user_input, context, system_prompt, max_tokens, temperature)
             else:
                 raise ValueError(f"Unsupported model: {self.model_id}")
             
@@ -162,6 +175,16 @@ class AIClient:
         
         return self.generate_content(feedback_prompt)
     
+    def generate_response(self, prompt: str, system_prompt: str = None, max_tokens: int = 4000, temperature: float = 0.7) -> str:
+        """Generate response using the selected Bedrock model (alias for generate_content)."""
+        # If system_prompt is provided, combine it with the prompt
+        if system_prompt:
+            combined_prompt = f"{system_prompt}\n\n{prompt}"
+        else:
+            combined_prompt = prompt
+        
+        return self.generate_content(combined_prompt)
+    
     def test_connection(self) -> Tuple[bool, str]:
         """Test connection to Bedrock service."""
         try:
@@ -192,11 +215,11 @@ class AIClient:
                     )
                     
                     response_body = json.loads(response['body'].read())
-                    print(f"? Nova format worked! Response: {json.dumps(response_body, indent=2)}")
+                    print(f"✅ Nova format worked! Response: {json.dumps(response_body, indent=2)}")
                     return True, "Model connection successful"
                     
                 except ClientError as format_error:
-                    print(f"? Nova format failed: {format_error.response['Error']['Code']} - {format_error.response['Error']['Message']}")
+                    print(f"❌ Nova format failed: {format_error.response['Error']['Code']} - {format_error.response['Error']['Message']}")
                     return False, f"Nova request failed: {format_error.response['Error']['Message']}"
                 
             elif "claude" in self.model_id.lower():
@@ -221,7 +244,7 @@ class AIClient:
                 )
                 
                 response_body = json.loads(response['body'].read())
-                print(f"? Claude format worked! Response: {json.dumps(response_body, indent=2)}")
+                print(f"✅ Claude format worked! Response: {json.dumps(response_body, indent=2)}")
                 return True, "Model connection successful"
             else:
                 return False, f"Unsupported model type: {self.model_id}"
@@ -229,7 +252,7 @@ class AIClient:
         except ClientError as e:
             error_code = e.response['Error']['Code']
             error_message = e.response['Error']['Message']
-            print(f"? ClientError: {error_code} - {error_message}")
+            print(f"❌ ClientError: {error_code} - {error_message}")
             
             if error_code == 'AccessDeniedException':
                 return False, "Access denied to Bedrock service - check IAM permissions"
@@ -243,5 +266,5 @@ class AIClient:
                 return False, f"AWS Error: {error_code} - {error_message}"
         
         except Exception as e:
-            print(f"? Unexpected error: {str(e)}")
+            print(f"❌ Unexpected error: {str(e)}")
             return False, f"Connection error: {str(e)}"
