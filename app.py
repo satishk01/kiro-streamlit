@@ -27,19 +27,25 @@ def render_sidebar():
     # Model selection
     st.sidebar.subheader("AI Model Configuration")
     
-    available_models = list(BEDROCK_MODELS.keys())
+    # Get available models (may be updated by discovery)
+    config_manager = ConfigManager()
+    available_models = list(config_manager.get_available_models().keys())
     current_config = SessionStateManager.get_config()
     
-    selected_model = st.sidebar.selectbox(
-        "Select AI Model",
-        available_models,
-        index=available_models.index(current_config.selected_model) if current_config.selected_model in available_models else 0,
-        key="model_selector"
-    )
-    
-    # Update config if model changed
-    if selected_model != current_config.selected_model:
-        SessionStateManager.update_config(selected_model=selected_model)
+    if available_models:
+        selected_model = st.sidebar.selectbox(
+            "Select AI Model",
+            available_models,
+            index=available_models.index(current_config.selected_model) if current_config.selected_model in available_models else 0,
+            key="model_selector"
+        )
+        
+        # Update config if model changed
+        if selected_model != current_config.selected_model:
+            SessionStateManager.update_config(selected_model=selected_model)
+    else:
+        st.sidebar.error("No models configured. Test AWS connection to discover available models.")
+        selected_model = current_config.selected_model
     
     # Directory configuration
     st.sidebar.subheader("Project Configuration")
@@ -68,38 +74,72 @@ def render_sidebar():
     
     # AWS Configuration
     st.sidebar.subheader("AWS Configuration")
-    aws_region = st.sidebar.text_input(
+    
+    # Common Bedrock regions
+    bedrock_regions = [
+        "us-east-1", "us-west-2", "eu-west-1", "eu-central-1", 
+        "ap-southeast-1", "ap-northeast-1"
+    ]
+    
+    if current_config.aws_region in bedrock_regions:
+        region_index = bedrock_regions.index(current_config.aws_region)
+    else:
+        region_index = 0
+    
+    aws_region = st.sidebar.selectbox(
         "AWS Region",
-        value=current_config.aws_region,
-        help="AWS region for Bedrock service"
+        bedrock_regions,
+        index=region_index,
+        help="AWS region for Bedrock service (us-east-1 recommended)"
     )
     
     if aws_region != current_config.aws_region:
         SessionStateManager.update_config(aws_region=aws_region)
     
-    # Test AWS connectivity
-    if st.sidebar.button("Test AWS Connection"):
+    # Test AWS connectivity and discover models
+    col1, col2 = st.sidebar.columns(2)
+    
+    with col1:
+        test_connection = st.button("Test Connection", key="test_conn")
+    
+    with col2:
+        discover_models = st.button("Discover Models", key="discover_models")
+    
+    if test_connection or discover_models:
         with st.sidebar:
-            with st.spinner("Testing connection..."):
+            with st.spinner("Testing connection and discovering models..."):
                 try:
-                    # First test basic AWS connectivity
                     config_manager = ConfigManager()
                     basic_success, basic_message = config_manager.test_aws_connectivity()
                     
                     if basic_success:
-                        # Then test specific model
-                        ai_client = AIClient(selected_model, aws_region)
-                        model_success, model_message = ai_client.test_connection()
+                        st.success(f"✅ {basic_message}")
                         
-                        if model_success:
-                            st.success(f"✅ {model_message}")
-                        else:
-                            st.error(f"❌ Model test failed: {model_message}")
+                        # Test specific model if one is selected
+                        if selected_model and not discover_models:
+                            ai_client = AIClient(selected_model, aws_region)
+                            model_success, model_message = ai_client.test_connection()
+                            
+                            if model_success:
+                                st.success(f"✅ Model test: {model_message}")
+                            else:
+                                st.error(f"❌ Model test failed: {model_message}")
+                        
+                        # Refresh the page to show updated models
+                        if discover_models:
+                            st.rerun()
+                            
                     else:
                         st.error(f"❌ AWS connection failed: {basic_message}")
                         
+                        # Show setup instructions on failure
+                        with st.expander("📋 Setup Instructions"):
+                            st.markdown(config_manager.get_setup_instructions())
+                        
                 except Exception as e:
                     st.error(f"❌ Unexpected error: {str(e)}")
+                    with st.expander("📋 Setup Instructions"):
+                        st.markdown(config_manager.get_setup_instructions())
     
     st.sidebar.markdown("---")
     
